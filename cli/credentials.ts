@@ -6,7 +6,7 @@ const SERVICE = "project-kit";
 
 export const TOKENS = {
   vercel: { name: "vercel-token", env: "VERCEL_API_TOKEN", label: "Vercel token (Account Settings → Tokens, scoped to the team)" },
-  neon: { name: "neon-api-key", env: "NEON_API_KEY", label: "Neon API key (Organization settings → API keys)" },
+  neon: { name: "neon-api-key", env: "NEON_API_KEY", label: "Neon personal API key (Account settings → API keys; an organization key can't create the preview keys)" },
   cloudflare: { name: "cloudflare-api-token", env: "CLOUDFLARE_API_TOKEN", label: "Cloudflare API token (Zone → DNS → Edit)" },
 } as const;
 
