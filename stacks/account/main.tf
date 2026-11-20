@@ -28,6 +28,30 @@ variable "existing_github_provider_arn" {
   description = "The account's GitHub OIDC provider, when one exists already; it is imported, not created."
 }
 
+variable "existing_app_boundary_arn" {
+  type        = string
+  default     = null
+  description = "The app boundary policy when it exists but isn't in the state (an interrupted first apply); imported."
+}
+
+variable "existing_control_role" {
+  type        = bool
+  default     = false
+  description = "The control role exists but isn't in the state; imported."
+}
+
+import {
+  for_each = var.existing_app_boundary_arn == null ? toset([]) : toset([var.existing_app_boundary_arn])
+  to       = aws_iam_policy.app_boundary
+  id       = each.value
+}
+
+import {
+  for_each = var.existing_control_role && var.control_repository != null ? toset(["project-kit-control"]) : toset([])
+  to       = aws_iam_role.control[0]
+  id       = each.value
+}
+
 variable "existing_vercel_provider_arns" {
   type        = map(string)
   default     = {}

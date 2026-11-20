@@ -123,6 +123,13 @@ export async function applyAccountStack(config: LocalConfig): Promise<string | n
     }),
   );
 
+  // Whatever an interrupted earlier apply created is adopted instead of failing as a duplicate.
+  const account = (await json<{ Account: string }>(["aws", "sts", "get-caller-identity", "--output", "json"], { env: awsEnv(config) })).Account;
+  const boundaryArn = `arn:aws:iam::${account}:policy/project-kit/project-kit-app-boundary`;
+  const boundaryExists = (await run(["aws", "iam", "get-policy", "--policy-arn", boundaryArn], { env: awsEnv(config), allowFailure: true })).code === 0;
+  const controlExists =
+    (await run(["aws", "iam", "get-role", "--role-name", "project-kit-control"], { env: awsEnv(config), allowFailure: true })).code === 0;
+
   const dir = join(KIT_DIR, "stacks", "account");
   const tofu = (args: string[]) => run(["tofu", `-chdir=${dir}`, ...args], { env: awsEnv(config), inherit: true });
   await tofu(["init", "-input=false", "-reconfigure", `-backend-config=bucket=${config.bucket}`, `-backend-config=region=${config.region}`]);
@@ -133,7 +140,9 @@ export async function applyAccountStack(config: LocalConfig): Promise<string | n
     `-var=existing_vercel_provider_arns=${JSON.stringify(vercel)}`,
     `-var=state_bucket=${config.bucket}`,
     ...(github ? [`-var=existing_github_provider_arn=${github}`] : []),
+    ...(boundaryExists ? [`-var=existing_app_boundary_arn=${boundaryArn}`] : []),
     ...(config.controlRepository ? [`-var=control_repository=${config.controlRepository}`] : []),
+    ...(controlExists ? ["-var=existing_control_role=true"] : []),
   ]);
   const output = await run(["tofu", `-chdir=${dir}`, "output", "-json", "control_role_arn"], { env: awsEnv(config), allowFailure: true });
   return output.code === 0 ? (JSON.parse(output.stdout) as string | null) : null;
