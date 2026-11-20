@@ -9,7 +9,6 @@ export interface Adoption {
   conflicts: VercelEnv[];
   /** Variables a Marketplace integration manages; the integration has to be removed. */
   integrations: string[];
-  gitConnected: boolean;
 }
 
 /** What already exists for a project, so the first apply adopts it instead of failing. */
@@ -19,12 +18,10 @@ export async function survey(settings: Settings, vercel: Vercel): Promise<Adopti
   const team = settings.vercel.teamId;
   let conflicts: VercelEnv[] = [];
   let integrations: string[] = [];
-  let gitConnected = false;
 
   const project = await vercel.project(settings.name);
   if (project) {
     imports["module.platform.vercel_project.this"] = `${team}/${project.id}`;
-    gitConnected = Boolean(project.link);
     const domains = new Set((await vercel.domains(project.id)).map((d) => d.name));
     if (domains.has(settings.domains.production)) {
       imports["module.platform.vercel_project_domain.production"] = `${team}/${project.id}/${settings.domains.production}`;
@@ -52,7 +49,7 @@ export async function survey(settings: Settings, vercel: Vercel): Promise<Adopti
     imports['module.storage.aws_s3_bucket.this["dev"]'] = settings.storage.existingBuckets.dev;
   }
 
-  return { imports, conflicts, integrations, gitConnected };
+  return { imports, conflicts, integrations };
 }
 
 export function managedNames(settings: Settings): Set<string> {

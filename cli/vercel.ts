@@ -67,10 +67,6 @@ export class Vercel {
   async deleteEnv(projectId: string, envId: string): Promise<void> {
     await this.request("DELETE", `/v9/projects/${projectId}/env/${envId}`);
   }
-
-  async disconnectGit(projectId: string): Promise<void> {
-    await this.request("DELETE", `/v9/projects/${projectId}/link`);
-  }
 }
 
 export interface VercelProject {

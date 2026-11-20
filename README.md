@@ -84,8 +84,10 @@ your clipboard.
 An existing repository works the same way (`kit new name --repo owner/repo`): the kit adopts
 the Vercel project, its domains, GitHub environments and the `dev` branch instead of
 recreating them, refuses to start while a Marketplace integration still owns variables the
-kit sets, deletes plain variables the kit replaces after asking, and turns off Vercel's own
-Git deploys.
+kit sets, and deletes plain variables the kit replaces after asking. The Vercel project stays
+connected to the repository (Vercel's GitHub app needs access to it): branch-scoped variables
+need the connection, and `git.deploymentEnabled: false` in the app's `vercel.json` keeps
+Vercel from deploying pushes itself.
 
 ### Security tiers
 

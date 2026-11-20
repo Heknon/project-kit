@@ -42,6 +42,20 @@ resource "vercel_project" "this" {
 
   automatically_expose_system_environment_variables = true
 
+  # Vercel only accepts variables and domains scoped to a branch while the project is
+  # connected to its repository. The app's vercel.json (git.deploymentEnabled: false) keeps
+  # Vercel from deploying pushes itself.
+  git_repository = {
+    type              = "github"
+    repo              = var.repository
+    production_branch = var.production_branch
+  }
+
+  git_comments = {
+    on_commit       = false
+    on_pull_request = false
+  }
+
   resource_config = {
     function_default_regions = [var.function_region]
   }
