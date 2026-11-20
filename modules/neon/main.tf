@@ -71,8 +71,16 @@ resource "neon_org_api_key" "previews" {
   name       = "${var.name}-previews"
 }
 
+# The production branch is protected, and Neon gives a branch made from a protected one new
+# role passwords: dev has its own, not the project's.
+data "neon_branch_role_password" "dev" {
+  project_id = neon_project.this.id
+  branch_id  = neon_branch.dev.id
+  role_name  = local.role
+}
+
 locals {
-  password = neon_project.this.database_password
+  dev_password = data.neon_branch_role_password.dev.password
 
   dev_pooler_host = join("", [
     split(".", neon_endpoint.dev.host)[0],
@@ -80,8 +88,8 @@ locals {
     join(".", slice(split(".", neon_endpoint.dev.host), 1, length(split(".", neon_endpoint.dev.host)))),
   ])
 
-  dev_url          = "postgresql://${local.role}:${local.password}@${local.dev_pooler_host}/${local.database}?sslmode=require"
-  dev_url_unpooled = "postgresql://${local.role}:${local.password}@${neon_endpoint.dev.host}/${local.database}?sslmode=require"
+  dev_url          = "postgresql://${local.role}:${local.dev_password}@${local.dev_pooler_host}/${local.database}?sslmode=require"
+  dev_url_unpooled = "postgresql://${local.role}:${local.dev_password}@${neon_endpoint.dev.host}/${local.database}?sslmode=require"
 }
 
 output "project_id" {
