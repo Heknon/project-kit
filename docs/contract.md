@@ -132,7 +132,8 @@ new code is live.
 The Vercel project's build: `vercel.json` (`buildCommand`, Build Output API, or framework
 detection). The workflows run `vercel build` and deploy the result with `--prebuilt`, so
 nothing builds twice. Add `"git": { "deploymentEnabled": false }` to `vercel.json`: the kit
-deploys, Vercel's Git integration does not.
+deploys, Vercel's Git integration does not. The project stays connected to the repository,
+because Vercel only accepts branch-scoped variables on a connected project.
 
 ### Workflows
 

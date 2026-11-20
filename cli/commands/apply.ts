@@ -81,7 +81,7 @@ async function registerRedirects(settings: Settings, shared: SharedGoogleClient)
  * in the state yet), and refuses to start while a Marketplace integration owns names the kit
  * is about to set.
  */
-async function prepare(config: LocalConfig, settings: Settings, vercel: Vercel): Promise<{ workspace: Workspace; gitConnected: boolean }> {
+async function prepare(config: LocalConfig, settings: Settings, vercel: Vercel): Promise<Workspace> {
   for (const note of pending(settings)) console.log(note);
 
   const adoption = await survey(settings, vercel);
@@ -110,12 +110,12 @@ async function prepare(config: LocalConfig, settings: Settings, vercel: Vercel):
     console.log(`Adopting existing resources:\n${Object.keys(imports).map((a) => `  ${a}`).join("\n")}`);
     workspace = await Workspace.open(settings, config, imports);
   }
-  return { workspace, gitConnected: adoption.gitConnected };
+  return workspace;
 }
 
 export async function plan(name: string | undefined): Promise<void> {
   const { config, settings, vercel } = await load(name);
-  const { workspace } = await prepare(config, settings, vercel);
+  const workspace = await prepare(config, settings, vercel);
   try {
     await workspace.plan();
   } finally {
@@ -125,7 +125,7 @@ export async function plan(name: string | undefined): Promise<void> {
 
 export async function apply(name: string | undefined): Promise<void> {
   const { config, settings, vercel } = await load(name);
-  const { workspace, gitConnected } = await prepare(config, settings, vercel);
+  const workspace = await prepare(config, settings, vercel);
   try {
     await workspace.apply();
   } finally {
@@ -133,11 +133,6 @@ export async function apply(name: string | undefined): Promise<void> {
   }
 
   const project = await vercel.project(settings.name);
-  if (project?.link && gitConnected) {
-    if (confirm("The Vercel project still deploys from Git on its own. Disconnect it, so only the kit's workflows deploy?", true)) {
-      await vercel.disconnectGit(project.id);
-    }
-  }
   if (project) {
     await writeSharedCredentials(settings, vercel, project.id);
     await reportMissingSecrets(settings, vercel, project.id);
@@ -167,7 +162,7 @@ async function reportMissingSecrets(settings: Settings, vercel: Vercel, projectI
 /** Drift (`tofu plan`) and leaks: identifiers of the project's accounts in its repository. */
 export async function check(name: string | undefined): Promise<void> {
   const { config, settings, vercel } = await load(name);
-  const { workspace } = await prepare(config, settings, vercel);
+  const workspace = await prepare(config, settings, vercel);
   let drift: number;
   let identifiers: string[];
   try {
