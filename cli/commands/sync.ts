@@ -35,7 +35,11 @@ export async function sync(name: string | undefined, options: { ref?: string; ba
     return;
   }
   await git("commit", "-m", `Use project-kit workflows ${version}`);
-  await git("push", "--force-with-lease", "origin", BRANCH);
+  // An earlier sync's branch is replaced. The clone holds only the base branch, so the lease
+  // names the branch's current commit explicitly; a bare --force-with-lease finds nothing to
+  // compare and refuses.
+  const earlier = await run(["git", "-C", dir, "fetch", "--depth", "1", "origin", `+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}`], { allowFailure: true });
+  await git("push", ...(earlier.code === 0 ? [`--force-with-lease=${BRANCH}:origin/${BRANCH}`] : []), "origin", BRANCH);
   const body = [
     `Adds or updates the caller workflows of [project-kit](https://github.com/Heknon/project-kit) at ${ref.slice(0, 7)} (${version}).`,
     "",
