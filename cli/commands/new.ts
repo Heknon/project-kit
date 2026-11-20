@@ -78,6 +78,8 @@ export async function newProject(name: string | undefined, options: NewOptions):
     security,
     productionBranch: options.productionBranch ?? repo.defaultBranch,
     productionDeploy: options.deploy ?? "push",
+    // Rulesets on private repositories need a paid GitHub plan; turn it on with --set if yours has one.
+    protectBranches: !repo.isPrivate,
     region: config.region,
     vercel: { teamId: team.id, teamSlug: team.slug },
     domains: {

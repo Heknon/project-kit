@@ -80,6 +80,9 @@ resource "vercel_project_domain" "dev" {
   team_id    = var.vercel_team_id
   domain     = var.domains.dev
   git_branch = var.dev_branch
+
+  # Vercel checks that the branch exists in the connected repository.
+  depends_on = [github_branch.dev]
 }
 
 locals {
@@ -177,6 +180,9 @@ resource "vercel_project_environment_variables" "this" {
   project_id = vercel_project.this.id
   team_id    = var.vercel_team_id
   variables  = local.variables
+
+  # The dev scope's variables name the dev branch, which Vercel checks exists.
+  depends_on = [github_branch.dev]
 }
 
 resource "github_branch" "dev" {
