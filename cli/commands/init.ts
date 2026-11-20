@@ -56,7 +56,9 @@ export async function init(): Promise<void> {
   console.log(`Vercel teams: ${slugs.join(", ")}`);
   const chosen = ask("Teams whose functions may use AWS (comma-separated)", slugs.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 
-  await applyAccountStack(config, chosen);
+  config.accountTeams = chosen;
+  await saveLocalConfig(config);
+  await applyAccountStack(config);
 
   const defaultTeam = ask("Vercel team for new apps", existing?.defaults?.vercelTeamSlug ?? chosen[0] ?? slugs[0]);
   const features = ask("Features of a new app", (existing?.defaults?.features ?? ["neon", "s3", "google"]).join(","))
@@ -105,7 +107,9 @@ async function findOrCreateBucket(config: LocalConfig): Promise<string> {
   return name;
 }
 
-async function applyAccountStack(config: LocalConfig, teamSlugs: string[]): Promise<void> {
+/** The account-wide stack: OIDC providers, the app boundary, and the control role when there is a control repository. */
+export async function applyAccountStack(config: LocalConfig): Promise<string | null> {
+  const teamSlugs = config.accountTeams ?? [];
   const providers = await json<{ OpenIDConnectProviderList: { Arn: string }[] }>(
     ["aws", "iam", "list-open-id-connect-providers", "--output", "json"],
     { env: awsEnv(config) },
@@ -127,6 +131,10 @@ async function applyAccountStack(config: LocalConfig, teamSlugs: string[]): Prom
     `-var=region=${config.region}`,
     `-var=vercel_team_slugs=${JSON.stringify(teamSlugs)}`,
     `-var=existing_vercel_provider_arns=${JSON.stringify(vercel)}`,
+    `-var=state_bucket=${config.bucket}`,
     ...(github ? [`-var=existing_github_provider_arn=${github}`] : []),
+    ...(config.controlRepository ? [`-var=control_repository=${config.controlRepository}`] : []),
   ]);
+  const output = await run(["tofu", `-chdir=${dir}`, "output", "-json", "control_role_arn"], { env: awsEnv(config), allowFailure: true });
+  return output.code === 0 ? (JSON.parse(output.stdout) as string | null) : null;
 }

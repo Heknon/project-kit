@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { run } from "../exec";
 import { repositoryInfo } from "../github";
+import { remote } from "../mode";
 import { KitError, type Settings } from "../settings";
 import { loadLocalConfig, loadSettings, tempDir } from "../store";
 import { appFiles } from "../templates";
@@ -64,8 +65,11 @@ export async function writeAppFiles(dir: string, settings: Settings, ref: string
 
 export async function kitRef(override?: string): Promise<{ ref: string; version: string }> {
   const ref = override ?? (await run(["git", "-C", KIT_DIR, "rev-parse", "HEAD"])).stdout.trim();
-  const remote = await run(["git", "-C", KIT_DIR, "branch", "-r", "--contains", ref], { allowFailure: true });
-  if (!remote.stdout.trim()) throw new KitError(`Kit commit ${ref.slice(0, 7)} isn't pushed; app repositories can't call it yet.`);
+  // In the control repository the kit was checked out from GitHub, so the commit is there.
+  if (!remote()) {
+    const pushed = await run(["git", "-C", KIT_DIR, "branch", "-r", "--contains", ref], { allowFailure: true });
+    if (!pushed.stdout.trim()) throw new KitError(`Kit commit ${ref.slice(0, 7)} isn't pushed; app repositories can't call it yet.`);
+  }
   const version = (await run(["git", "-C", KIT_DIR, "describe", "--tags", "--always", ref])).stdout.trim();
   return { ref, version };
 }

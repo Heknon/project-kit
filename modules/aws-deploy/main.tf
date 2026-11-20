@@ -25,6 +25,12 @@ variable "policy_arns" {
   description = "Managed policies for the deploy role, on top of assuming the CDK bootstrap roles."
 }
 
+variable "permissions_boundary_arn" {
+  type        = string
+  default     = null
+  description = "Boundary on the roles this module creates (standard projects: project-kit-app-boundary)."
+}
+
 data "aws_caller_identity" "current" {}
 
 data "aws_iam_openid_connect_provider" "github" {
@@ -66,8 +72,10 @@ data "aws_iam_policy_document" "cdk" {
 }
 
 resource "aws_iam_role" "deploy" {
-  name               = "${var.name}-github-deploy"
-  assume_role_policy = data.aws_iam_policy_document.trust.json
+  name                 = "${var.name}-github-deploy"
+  path                 = "/project-kit/"
+  permissions_boundary = var.permissions_boundary_arn
+  assume_role_policy   = data.aws_iam_policy_document.trust.json
 }
 
 resource "aws_iam_role_policy" "cdk" {

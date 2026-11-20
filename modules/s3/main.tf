@@ -36,6 +36,12 @@ variable "versioning" {
   default = false
 }
 
+variable "permissions_boundary_arn" {
+  type        = string
+  default     = null
+  description = "Boundary on the roles this module creates (standard projects: project-kit-app-boundary)."
+}
+
 variable "preview_expiry_days" {
   type    = number
   default = 14
@@ -54,8 +60,8 @@ resource "random_id" "suffix" {
 
 locals {
   buckets = var.existing_buckets != null ? var.existing_buckets : {
-    production = "${var.name}-${random_id.suffix[0].hex}"
-    dev        = "${var.name}-dev-${random_id.suffix[0].hex}"
+    production = "kit-${var.name}-${random_id.suffix[0].hex}"
+    dev        = "kit-${var.name}-dev-${random_id.suffix[0].hex}"
   }
 
   cors_origins = concat(var.app_origins, [
@@ -187,6 +193,8 @@ data "aws_iam_policy_document" "access" {
 resource "aws_iam_role" "vercel" {
   for_each             = local.environments
   name                 = "${var.name}-vercel-${each.key}"
+  path                 = "/project-kit/"
+  permissions_boundary = var.permissions_boundary_arn
   assume_role_policy   = data.aws_iam_policy_document.trust[each.key].json
   max_session_duration = 3600
 }

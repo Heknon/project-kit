@@ -51,7 +51,7 @@ export async function bootstrap(settings: Settings, starter: string): Promise<vo
 export async function copyStarter(from: string, to: string, name: string): Promise<void> {
   await cp(from, to, {
     recursive: true,
-    filter: (source) => !/(^|[\\/])(node_modules|\.next|\.vercel|\.turbo)([\\/]|$)/.test(relative(from, source)),
+    filter: (source) => !/(^|[\\/])(node_modules|\.next|\.vercel|\.turbo|next-env\.d\.ts)([\\/]|$)/.test(relative(from, source)),
   });
   for (const file of await walk(to)) {
     const handle = Bun.file(file);

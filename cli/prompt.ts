@@ -1,6 +1,11 @@
+import { assumeYes } from "./mode";
 import { KitError } from "./settings";
 
 export function ask(question: string, fallback?: string): string {
+  if (assumeYes()) {
+    if (fallback !== undefined) return fallback;
+    throw new KitError(`${question}: no answer given and nothing to ask in a workflow; pass it as an input.`);
+  }
   const answer = prompt(fallback ? `${question} [${fallback}]` : question)?.trim();
   if (answer) return answer;
   if (fallback !== undefined) return fallback;
@@ -8,6 +13,10 @@ export function ask(question: string, fallback?: string): string {
 }
 
 export function confirm(question: string, fallback = false): boolean {
+  if (assumeYes()) {
+    console.log(`${question} yes (--yes)`);
+    return true;
+  }
   const answer = prompt(`${question} ${fallback ? "[Y/n]" : "[y/N]"}`)?.trim().toLowerCase();
   if (!answer) return fallback;
   return answer === "y" || answer === "yes";

@@ -39,3 +39,12 @@ describe("root module", () => {
     expect(rootModule(FIXTURES.full, backend)).toContain('"production_client_id" = "p.apps.googleusercontent.com"');
   });
 });
+
+describe("permissions boundary", () => {
+  test("standard apps' roles carry the kit boundary, isolated apps' don't", () => {
+    expect(rootModule(FIXTURES.full, backend)).toContain("permissions_boundary_arn = data.aws_iam_policy.app_boundary.arn");
+    const isolated = rootModule(FIXTURES.postgres, backend);
+    expect(isolated).toContain("permissions_boundary_arn = null");
+    expect(isolated).toContain('key          = "isolated/app/tofu.tfstate"');
+  });
+});

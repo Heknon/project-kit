@@ -4,6 +4,7 @@ import { run } from "../exec";
 import { clientSpecs, copyToClipboard, openUrl, verifyRedirect } from "../google";
 import { findLeaks } from "../leaks";
 import { confirm } from "../prompt";
+import { notice, refuseIsolatedRemotely, remote } from "../mode";
 import { googleClient, KitError, pending, type Settings } from "../settings";
 import { deleteSettings, type LocalConfig, loadLocalConfig, loadSettings, tempDir } from "../store";
 import { Workspace } from "../tofu";
@@ -13,6 +14,7 @@ export async function load(name: string | undefined): Promise<{ config: LocalCon
   if (!name) throw new KitError("Name the project: kit <command> <name>.");
   const config = await loadLocalConfig();
   const settings = await withSharedClient(await loadSettings(config, name));
+  refuseIsolatedRemotely(settings);
   return { config, settings, vercel: new Vercel(await getToken("vercel"), settings.vercel.teamId) };
 }
 
@@ -59,10 +61,19 @@ async function registerRedirects(settings: Settings, shared: SharedGoogleClient)
   if (missing.length === 0) return;
 
   const page = `https://console.cloud.google.com/auth/clients/${encodeURIComponent(shared.clientId)}?project=${encodeURIComponent(shared.gcpProject)}`;
-  console.log(`\nGoogle doesn't accept these redirect URIs yet (on the clipboard):\n${missing.map((u) => `  ${u}`).join("\n")}`);
-  console.log("Add them to the shared client under Authorized redirect URIs, and save.");
-  await copyToClipboard(missing.join("\n"));
-  await openUrl(page);
+  await notice(
+    [
+      `**Google doesn't accept these redirect URIs of ${settings.name} yet.** Add them to the shared client's Authorized redirect URIs and save (${page}):`,
+      "",
+      "```",
+      ...missing,
+      "```",
+    ].join("\n"),
+  );
+  if (!remote()) {
+    await copyToClipboard(missing.join("\n"));
+    await openUrl(page);
+  }
 }
 
 /**
@@ -206,12 +217,12 @@ export async function destroy(name: string | undefined): Promise<void> {
     const kept = inState.filter((address) => KEPT_ON_DESTROY.some((prefix) => address === prefix || address.startsWith(`${prefix}[`)));
     const neonProjectId = settings.database.kind === "neon" ? await workspace.output<string>("neon_project_id").catch(() => null) : null;
     if (kept.length > 0) await workspace.tofu(["state", "rm", ...kept]);
-    await workspace.tofu(["destroy", "-input=true"], true);
+    await workspace.destroy();
     if (neonProjectId) await deletePreviewBranches(neonProjectId);
   } finally {
     await workspace.close();
   }
-  await deleteSettings(config, settings.name);
+  await deleteSettings(config, settings);
   console.log(`${settings.name} is down. Kept: ${describeKept(settings)}.`);
 }
 

@@ -50,6 +50,8 @@ export interface SharedGoogleClient {
 }
 
 export async function getSharedGoogleClient(): Promise<SharedGoogleClient | null> {
+  const { KIT_GOOGLE_CLIENT_ID: clientId, KIT_GOOGLE_CLIENT_SECRET: clientSecret, KIT_GOOGLE_PROJECT: gcpProject } = process.env;
+  if (clientId && clientSecret && gcpProject) return { clientId, clientSecret, gcpProject };
   const stored = await Bun.secrets.get({ service: SERVICE, name: "google-shared-client" });
   return stored ? (JSON.parse(stored) as SharedGoogleClient) : null;
 }
@@ -60,6 +62,8 @@ export async function saveSharedGoogleClient(client: SharedGoogleClient): Promis
 
 /** Secrets standard apps reuse (an SMTP URL, an API key), by environment variable name. */
 export async function getSharedSecret(name: string): Promise<string | null> {
+  const fromEnv = process.env[`KIT_SHARED_${name}`];
+  if (fromEnv) return fromEnv;
   return Bun.secrets.get({ service: SERVICE, name: `shared/${name}` });
 }
 

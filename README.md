@@ -103,6 +103,20 @@ Everything else is per app in both tiers: database, buckets, IAM roles, `AUTH_SE
 (production separate from dev and previews), generated secrets. Production deploys on merge
 to the production branch in both, unless `--deploy dispatch`.
 
+### From anywhere: the control repository (standard projects only)
+
+```sh
+kit control you/kit-control      # once, from your machine; the repository must be private
+```
+
+That gives a private repository (`kit-control`) an AWS role and an `apps` environment holding
+what your keychain holds. Its workflows (New app, Apply, Destroy) run the same commands, so
+Claude on your phone, or any session that can start a GitHub workflow, can create and manage
+**standard** projects. The role can only reach standard projects' state (`projects/` in the
+state bucket), `kit-*` buckets, and roles under `/project-kit/` that carry the app permissions
+boundary. Isolated projects are refused there and stay on your machine: their state sits
+under `isolated/`, which the role can't read.
+
 ### Taking an app down
 
 `kit destroy myapp` removes the Vercel project, GitHub environments and secrets, IAM roles,
