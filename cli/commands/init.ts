@@ -3,6 +3,7 @@ import { getSharedGoogleClient, getToken, hasToken, saveAppVercelToken, saveToke
 import { neonOrg } from "./new";
 import { setSharedGoogleClient } from "./shared";
 import { json, run } from "../exec";
+import { oidcSubjectPrefixes } from "../github";
 import { ask, askHidden, confirm } from "../prompt";
 import { KitError } from "../settings";
 import { aws, awsEnv, type LocalConfig, loadLocalConfig, saveLocalConfig } from "../store";
@@ -141,7 +142,12 @@ export async function applyAccountStack(config: LocalConfig): Promise<string | n
     `-var=state_bucket=${config.bucket}`,
     ...(github ? [`-var=existing_github_provider_arn=${github}`] : []),
     ...(boundaryExists ? [`-var=existing_app_boundary_arn=${boundaryArn}`] : []),
-    ...(config.controlRepository ? [`-var=control_repository=${config.controlRepository}`] : []),
+    ...(config.controlRepository
+      ? [
+          `-var=control_repository=${config.controlRepository}`,
+          `-var=control_subject_prefixes=${JSON.stringify(await oidcSubjectPrefixes(config.controlRepository))}`,
+        ]
+      : []),
     ...(controlExists ? ["-var=existing_control_role=true"] : []),
   ]);
   const output = await run(["tofu", `-chdir=${dir}`, "output", "-json", "control_role_arn"], { env: awsEnv(config), allowFailure: true });

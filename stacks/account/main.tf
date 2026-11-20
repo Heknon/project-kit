@@ -99,6 +99,12 @@ variable "control_repository" {
   description = "owner/name of the private control repository whose workflows run the kit for standard projects. Null: no control role."
 }
 
+variable "control_subject_prefixes" {
+  type        = list(string)
+  default     = null
+  description = "The OIDC subs of the control repository before :environment:, one per form GitHub may issue. Defaults to repo:<control_repository>."
+}
+
 data "aws_caller_identity" "current" {}
 
 locals {
@@ -140,7 +146,7 @@ data "aws_iam_policy_document" "control_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.control_repository}:environment:apps"]
+      values   = [for prefix in coalesce(var.control_subject_prefixes, ["repo:${var.control_repository}"]) : "${prefix}:environment:apps"]
     }
   }
 }
