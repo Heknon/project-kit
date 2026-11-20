@@ -1,0 +1,38 @@
+{
+  "name": "__APP_NAME__",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "check": "biome check . && tsc --noEmit && bun test",
+    "format": "biome check --write .",
+    "db:generate": "bun --bun drizzle-kit generate",
+    "db:migrate:deploy": "bun --bun drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1173.0",
+    "@aws-sdk/s3-request-presigner": "^3.1173.0",
+    "@vercel/oidc-aws-credentials-provider": "^3.3.21",
+    "drizzle-orm": "^0.45.4",
+    "next": "^16.4.6",
+    "next-auth": "^5.0.0-beta.32",
+    "postgres": "^3.4.9",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.8",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/bun": "^1.4.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "drizzle-kit": "^0.31.11",
+    "tailwindcss": "^4.3.5",
+    "typescript": "^6.0.3"
+  }
+}
