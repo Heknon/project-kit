@@ -52,7 +52,7 @@ export function providersFor(settings: Settings): Provider[] {
  * sources are relative, and it only declares the providers the project uses: a project
  * without Neon never needs a Neon token.
  */
-export function rootModule(settings: Settings, backend: Backend, imports: Imports = {}): string {
+export function rootModule(settings: Settings, backend: Backend, imports: Imports = {}, subjectPrefixes?: string[]): string {
   const providers = providersFor(settings);
   const owner = settings.repository.split("/")[0];
   const modules = "../../modules";
@@ -131,6 +131,7 @@ provider "github" {
   source      = "${modules}/aws-deploy"
   name        = ${hcl(settings.name)}
   repository  = ${hcl(settings.repository)}
+  subject_prefixes = ${subjectPrefixes ? hcl(subjectPrefixes) : "null"}
   policy_arns = ${hcl(settings.awsDeploy.policyArns)}
   permissions_boundary_arn = ${boundary ? "data.aws_iam_policy.app_boundary.arn" : "null"}
 }`);

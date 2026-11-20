@@ -13,10 +13,10 @@ variable "repository" {
   description = "owner/name"
 }
 
-variable "subject_prefix" {
-  type        = string
+variable "subject_prefixes" {
+  type        = list(string)
   default     = null
-  description = "The OIDC sub before :environment:. Defaults to repo:<owner>/<name>."
+  description = "The OIDC subs before :environment:, one per form GitHub may issue (names only, or names with ids). Defaults to repo:<owner>/<name>."
 }
 
 variable "policy_arns" {
@@ -38,7 +38,7 @@ data "aws_iam_openid_connect_provider" "github" {
 }
 
 locals {
-  subject_prefix = coalesce(var.subject_prefix, "repo:${var.repository}")
+  subject_prefixes = coalesce(var.subject_prefixes, ["repo:${var.repository}"])
 }
 
 data "aws_iam_policy_document" "trust" {
@@ -56,10 +56,7 @@ data "aws_iam_policy_document" "trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        "${local.subject_prefix}:environment:dev",
-        "${local.subject_prefix}:environment:production",
-      ]
+      values   = [for pair in setproduct(local.subject_prefixes, ["dev", "production"]) : "${pair[0]}:environment:${pair[1]}"]
     }
   }
 }

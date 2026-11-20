@@ -1,4 +1,5 @@
 import { run } from "./exec";
+import { remote } from "./mode";
 import { KitError } from "./settings";
 
 const SERVICE = "project-kit";
@@ -11,18 +12,24 @@ export const TOKENS = {
 
 export type TokenKind = keyof typeof TOKENS;
 
+/** A keychain entry. Remote mode has no keychain: there, credentials come from the environment only. */
+async function stored(name: string): Promise<string | null> {
+  if (remote()) return null;
+  return Bun.secrets.get({ service: SERVICE, name });
+}
+
 /** Tokens live in the OS keychain (Windows Credential Manager, macOS Keychain, libsecret). */
 export async function getToken(kind: TokenKind): Promise<string> {
   const token = TOKENS[kind];
   const fromEnv = process.env[token.env];
   if (fromEnv) return fromEnv;
-  const stored = await Bun.secrets.get({ service: SERVICE, name: token.name });
-  if (!stored) throw new KitError(`No ${token.label} saved. Run \`kit login ${kind}\`.`);
-  return stored;
+  const value = await stored(token.name);
+  if (!value) throw new KitError(`No ${token.label} saved. Run \`kit login ${kind}\`.`);
+  return value;
 }
 
 export async function hasToken(kind: TokenKind): Promise<boolean> {
-  return Boolean(process.env[TOKENS[kind].env] || (await Bun.secrets.get({ service: SERVICE, name: TOKENS[kind].name })));
+  return Boolean(process.env[TOKENS[kind].env] || (await stored(TOKENS[kind].name)));
 }
 
 export async function saveToken(kind: TokenKind, value: string): Promise<void> {
@@ -35,7 +42,7 @@ export async function saveToken(kind: TokenKind, value: string): Promise<void> {
  * without touching the others.
  */
 export async function getAppVercelToken(app: string): Promise<string | null> {
-  return Bun.secrets.get({ service: SERVICE, name: `vercel-token/${app}` });
+  return stored(`vercel-token/${app}`);
 }
 
 export async function saveAppVercelToken(app: string, value: string): Promise<void> {
@@ -52,8 +59,8 @@ export interface SharedGoogleClient {
 export async function getSharedGoogleClient(): Promise<SharedGoogleClient | null> {
   const { KIT_GOOGLE_CLIENT_ID: clientId, KIT_GOOGLE_CLIENT_SECRET: clientSecret, KIT_GOOGLE_PROJECT: gcpProject } = process.env;
   if (clientId && clientSecret && gcpProject) return { clientId, clientSecret, gcpProject };
-  const stored = await Bun.secrets.get({ service: SERVICE, name: "google-shared-client" });
-  return stored ? (JSON.parse(stored) as SharedGoogleClient) : null;
+  const value = await stored("google-shared-client");
+  return value ? (JSON.parse(value) as SharedGoogleClient) : null;
 }
 
 export async function saveSharedGoogleClient(client: SharedGoogleClient): Promise<void> {
@@ -64,7 +71,7 @@ export async function saveSharedGoogleClient(client: SharedGoogleClient): Promis
 export async function getSharedSecret(name: string): Promise<string | null> {
   const fromEnv = process.env[`KIT_SHARED_${name}`];
   if (fromEnv) return fromEnv;
-  return Bun.secrets.get({ service: SERVICE, name: `shared/${name}` });
+  return stored(`shared/${name}`);
 }
 
 export async function saveSharedSecret(name: string, value: string): Promise<void> {

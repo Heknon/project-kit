@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { FIXTURES } from "./fixtures";
+import { subjectPrefixes } from "./github";
 import { hcl, providersFor, rootModule } from "./root";
 
 const backend = { bucket: "state", region: "eu-central-1" };
@@ -46,5 +47,16 @@ describe("permissions boundary", () => {
     const isolated = rootModule(FIXTURES.postgres, backend);
     expect(isolated).toContain("permissions_boundary_arn = null");
     expect(isolated).toContain('key          = "isolated/app/tofu.tfstate"');
+  });
+});
+
+describe("GitHub OIDC subjects", () => {
+  test("both forms GitHub issues: names only, and names with ids", () => {
+    expect(subjectPrefixes({ owner: "Acme", ownerId: 7, name: "app", id: 42 })).toEqual(["repo:Acme/app", "repo:Acme@7/app@42"]);
+  });
+
+  test("the deploy role trusts the subjects it is given", () => {
+    expect(rootModule(FIXTURES.full, backend, {}, ["repo:Acme/app", "repo:Acme@7/app@42"])).toContain('"repo:Acme@7/app@42"');
+    expect(rootModule(FIXTURES.full, backend)).toContain("subject_prefixes = null");
   });
 });

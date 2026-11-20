@@ -2,6 +2,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAppVercelToken, getToken, githubToken } from "./credentials";
 import { run } from "./exec";
+import { oidcSubjectPrefixes } from "./github";
 import { type Imports, providersFor, rootModule } from "./root";
 import { assumeYes } from "./mode";
 import { KitError, type Settings } from "./settings";
@@ -43,7 +44,8 @@ export class Workspace {
   static async open(settings: Settings, config: LocalConfig, imports: Imports = {}): Promise<Workspace> {
     const dir = join(KIT_DIR, ".work", settings.name);
     await mkdir(dir, { recursive: true });
-    await Bun.write(join(dir, "main.tf"), rootModule(settings, { bucket: config.bucket, region: config.region }, imports));
+    const subjects = settings.awsDeploy ? await oidcSubjectPrefixes(settings.repository) : undefined;
+    await Bun.write(join(dir, "main.tf"), rootModule(settings, { bucket: config.bucket, region: config.region }, imports, subjects));
     const workspace = new Workspace(dir, await providerEnv(settings, config));
     await workspace.tofu(["init", "-input=false", "-reconfigure", "-upgrade=false"]);
     return workspace;
