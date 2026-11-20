@@ -19,3 +19,9 @@ test("pinned to a commit, values-free", () => {
     `preview.yml@${ref} # v1.0.0`,
   );
 });
+
+test("callers grant what the kit's workflows ask for", () => {
+  const files = appFiles({ productionBranch: "main", productionDeploy: "push" }, ref, "v1.0.0");
+  expect(files[".github/workflows/preview.yml"]).toContain("pull-requests: write");
+  expect(files[".github/workflows/deploy.yml"]).toContain("id-token: write");
+});

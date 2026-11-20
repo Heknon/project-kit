@@ -21,6 +21,10 @@ on:
 
 jobs:
   preview:
+    # A called workflow can't have more than its caller, and a repository's default is read-only.
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ${KIT_REPOSITORY}/.github/workflows/preview.yml@${ref} # ${version}
     secrets: inherit
 `,
@@ -36,6 +40,9 @@ on:
 
 jobs:
   deploy:
+    permissions:
+      contents: read
+      id-token: write
     uses: ${KIT_REPOSITORY}/.github/workflows/deploy.yml@${ref} # ${version}
     with:
       production-branch: ${settings.productionBranch}
