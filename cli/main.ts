@@ -25,7 +25,7 @@ const USAGE = `kit ${KIT_VERSION}: deployment setup for GitHub + Vercel + Neon +
   kit shared set <NAME>             save a secret standard apps share
   kit control <owner/repo> [--shared NAME,...]   set up the private control repository (standard projects only)
   kit list
-  kit settings <name> [--edit | --history | --show <version id>]
+  kit settings <name> [--edit | --set path=value ... | --history | --show <version id>]
   kit plan <name>
   kit apply <name>
   kit google <name>                 create the OAuth clients (after the first apply)
@@ -55,6 +55,7 @@ async function main(argv: string[]): Promise<void> {
       env: { type: "string", multiple: true },
       public: { type: "boolean" },
       edit: { type: "boolean" },
+      set: { type: "string", multiple: true },
       history: { type: "boolean" },
       show: { type: "string" },
       scope: { type: "string" },
@@ -92,7 +93,7 @@ async function main(argv: string[]): Promise<void> {
       return projects();
     case "settings":
       if (values.show && rest[0]) return showVersion(rest[0], values.show);
-      return settings(rest[0], { edit: values.edit, history: values.history });
+      return settings(rest[0], { edit: values.edit, history: values.history, set: values.set });
     case "plan":
       return plan(rest[0]);
     case "apply":

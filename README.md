@@ -130,7 +130,7 @@ Afterwards:
 
 | Task | Command |
 |---|---|
-| See or change settings | `kit settings myapp` / `kit settings myapp --edit`, then `kit apply myapp` |
+| See or change settings | `kit settings myapp` / `kit settings myapp --edit` (or `--set domains.production=…`), then `kit apply myapp` |
 | History of the settings | `kit settings myapp --history`, `kit settings myapp --show <version>` |
 | What would change | `kit plan myapp` |
 | Drift and leaked identifiers | `kit check myapp` |
@@ -145,6 +145,7 @@ Afterwards:
 |---|---|
 | `security` | `standard` or `isolated` (see above) |
 | `repository`, `productionBranch` (`main`), `productionDeploy` (`push` or `dispatch`) | `dispatch`: production deploys only when Deploy is run by hand |
+| `protectBranches` | a ruleset that stops deleting or force-pushing the production and `dev` branches; `kit new` turns it on for public repositories only, because GitHub's free plan refuses rulesets on private ones |
 | `domains.production`, `domains.dev` | default `<name>.vercel.app` and `<name>-dev.vercel.app`; `dns.provider: "cloudflare"` with a `zoneId` adds the records |
 | `database.kind` | `none`, `neon` (kit-managed, a branch per pull request) or `postgres` (you supply `DATABASE_URL` and `DATABASE_URL_UNPOOLED`; previews share the non-production database) |
 | `storage.kind` | `none` or `s3`; `existingBuckets` adopts buckets you have |
