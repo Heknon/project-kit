@@ -14,12 +14,12 @@ import { KIT_VERSION } from "./version";
 const USAGE = `kit ${KIT_VERSION}: deployment setup for GitHub + Vercel + Neon + AWS (docs/contract.md)
 
   kit init                          once per machine: state bucket, tokens, AWS OIDC providers
-  kit login <vercel|neon|cloudflare>
+  kit login <vercel|neon|cloudflare> [--app <name>]   --app: a deploy token for one app
   kit new <name>                    settings, repository, apply and workflows in one go
         [--repo owner/name] [--with neon|postgres,s3,google,cron,aws-deploy] [--security isolated]
         [--domain d] [--dev-domain d] [--production-branch b] [--deploy push|dispatch]
         [--generate A,B] [--supply NAME[:scope+scope],...] [--shared NAME,...]
-        [--env scope:NAME=value ...] [--public] [--yes]
+        [--env scope:NAME=value ...] [--starter next|none] [--public] [--yes]
   kit shared google                 save the Google client standard apps share
   kit shared set <NAME>             save a secret standard apps share
   kit list
@@ -38,6 +38,8 @@ async function main(argv: string[]): Promise<void> {
     allowPositionals: true,
     options: {
       repo: { type: "string" },
+      app: { type: "string" },
+      starter: { type: "string" },
       security: { type: "string" },
       shared: { type: "string" },
       yes: { type: "boolean", short: "y" },
@@ -65,7 +67,7 @@ async function main(argv: string[]): Promise<void> {
     case "init":
       return init();
     case "login":
-      return login(rest[0]);
+      return login(rest[0], values.app);
     case "new":
       return newProject(rest[0], {
         repo: values.repo,
@@ -73,6 +75,7 @@ async function main(argv: string[]): Promise<void> {
         security: values.security,
         shared: values.shared,
         yes: values.yes,
+        starter: values.starter,
         domain: values.domain,
         devDomain: values["dev-domain"],
         productionBranch: values["production-branch"],

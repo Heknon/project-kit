@@ -29,6 +29,19 @@ export async function saveToken(kind: TokenKind, value: string): Promise<void> {
   await Bun.secrets.set({ service: SERVICE, name: TOKENS[kind].name, value });
 }
 
+/**
+ * A deploy token for one app (GitHub secret VERCEL_TOKEN). Isolated apps need their own, so a
+ * leaked token from another app's repository can be revoked without touching them, and theirs
+ * without touching the others.
+ */
+export async function getAppVercelToken(app: string): Promise<string | null> {
+  return Bun.secrets.get({ service: SERVICE, name: `vercel-token/${app}` });
+}
+
+export async function saveAppVercelToken(app: string, value: string): Promise<void> {
+  await Bun.secrets.set({ service: SERVICE, name: `vercel-token/${app}`, value });
+}
+
 /** The Google OAuth client every standard app signs in with. */
 export interface SharedGoogleClient {
   clientId: string;

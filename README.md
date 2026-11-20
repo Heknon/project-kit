@@ -71,9 +71,12 @@ kit new myapp
 ```
 
 That one command saves the settings (from your defaults), creates the repository if it
-doesn't exist, applies (Vercel project and domains, Neon with a dev branch, S3 buckets and
-roles, GitHub environments and secrets, generated secrets, the shared Google client), and
-opens a pull request with the caller workflows. The only step left to you is the one Google
+doesn't exist, and applies (Vercel project and domains, Neon with a dev branch, S3 buckets
+and roles, GitHub environments and secrets, generated secrets, the shared Google client).
+A blank repository then gets the starter (`starters/next`: Next.js, Auth.js, Drizzle,
+Tailwind, Bun) and the caller workflows as its first commit on the production branch and on
+`dev`, so both deploy at once. A repository with code gets a pull request with the workflows
+instead (`--starter none` skips the starter). The only step left to you is the one Google
 won't let a program do: adding the app's redirect URIs to the shared client. `kit apply`
 checks them with Google, and when any are missing it opens the client's page with them on
 your clipboard.
@@ -90,6 +93,11 @@ Git deploys.
 |---|---|---|
 | Google sign-in | the shared client | its own production and non-production clients (`kit google`, guided) |
 | Supplied secrets | may use shared ones (`kit shared set NAME`, `--shared NAME`) | its own only |
+| Vercel deploy token (GitHub secret) | the one from `kit init` | its own (`kit login vercel --app NAME`; `kit new` asks) |
+
+A Vercel token can be limited to a team, not to a project: an isolated app's own token can
+be revoked on its own, but another app's token in the same team can still reach it. Put an
+app that must be out of reach in its own Vercel team.
 
 Everything else is per app in both tiers: database, buckets, IAM roles, `AUTH_SECRET`
 (production separate from dev and previews), generated secrets. Production deploys on merge
