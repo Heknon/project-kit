@@ -1,7 +1,8 @@
-import { getToken } from "../credentials";
+import { bootstrap, isBlank, starterExists } from "../bootstrap";
+import { getAppVercelToken, getToken, saveAppVercelToken } from "../credentials";
 import { run } from "../exec";
 import { repositoryInfo } from "../github";
-import { ask, confirm } from "../prompt";
+import { ask, askHidden, confirm } from "../prompt";
 import { KitError, parseSettings, type Scope, SCOPES, type Settings } from "../settings";
 import { loadLocalConfig, loadSettings, saveSettings } from "../store";
 import { Vercel } from "../vercel";
@@ -23,6 +24,8 @@ export interface NewOptions {
   env?: string[];
   public?: boolean;
   yes?: boolean;
+  /** next (default for a blank repository) or none */
+  starter?: string;
 }
 
 const FEATURES = ["neon", "postgres", "s3", "google", "cron", "aws-deploy"] as const;
@@ -91,6 +94,16 @@ export async function newProject(name: string | undefined, options: NewOptions):
   if (features.has("aws-deploy")) settings.awsDeploy = { policyArns: [] };
 
   const parsed = parseSettings(settings);
+  const blank = await isBlank(repository);
+  const starter = options.starter ?? (blank && (await starterExists("next")) ? "next" : "none");
+  if (starter !== "none" && !blank) throw new KitError(`${repository} already has code; a starter only goes into a blank repository.`);
+  if (starter !== "none" && !(await starterExists(starter))) throw new KitError(`There's no ${starter} starter in this kit.`);
+
+  if (parsed.security === "isolated" && !(await getAppVercelToken(name))) {
+    console.log(`${name} is isolated, so it deploys with its own Vercel token.`);
+    await saveAppVercelToken(name, await askHidden(`Vercel token for ${name} (Account Settings → Tokens; name it after the app)`));
+  }
+
   await saveSettings(config, parsed);
   console.log(`Saved the settings of ${name} (${security}).`);
 
@@ -98,10 +111,13 @@ export async function newProject(name: string | undefined, options: NewOptions):
   if (parsed.security === "isolated" && parsed.google) {
     console.log(`\nIsolated apps have their own Google clients: run \`kit google ${name}\`.`);
   }
-  await sync(name, {}).catch((error: unknown) => {
-    console.log(`\nWorkflows not synced: ${error instanceof Error ? error.message : String(error)}`);
+
+  const failed = (error: unknown) => {
+    console.log(`\nWorkflows not set up: ${error instanceof Error ? error.message : String(error)}`);
     console.log(`Run \`kit sync ${name}\` when that's fixed.`);
-  });
+  };
+  if (starter !== "none") await bootstrap(parsed, starter).catch(failed);
+  else await sync(name, {}).catch(failed);
 }
 
 function list(value: string | undefined): string[] {

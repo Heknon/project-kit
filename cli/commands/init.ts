@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { getSharedGoogleClient, getToken, hasToken, saveToken, TOKENS, type TokenKind } from "../credentials";
+import { getSharedGoogleClient, getToken, hasToken, saveAppVercelToken, saveToken, TOKENS, type TokenKind } from "../credentials";
 import { neonOrg } from "./new";
 import { setSharedGoogleClient } from "./shared";
 import { json, run } from "../exec";
@@ -9,8 +9,14 @@ import { aws, awsEnv, type LocalConfig, loadLocalConfig, saveLocalConfig } from 
 import { KIT_DIR } from "../tofu";
 import { Vercel } from "../vercel";
 
-export async function login(kind: string | undefined): Promise<void> {
-  if (!kind || !(kind in TOKENS)) throw new KitError(`Usage: kit login <${Object.keys(TOKENS).join("|")}>`);
+export async function login(kind: string | undefined, app?: string): Promise<void> {
+  if (!kind || !(kind in TOKENS)) throw new KitError(`Usage: kit login <${Object.keys(TOKENS).join("|")}> [--app <name>]`);
+  if (app) {
+    if (kind !== "vercel") throw new KitError("Only Vercel has per-app tokens.");
+    await saveAppVercelToken(app, await askHidden(`Vercel token for ${app} (Account Settings → Tokens; name it after the app)`));
+    console.log(`Saved ${app}'s deploy token. \`kit apply ${app}\` puts it in its GitHub environments.`);
+    return;
+  }
   const token = TOKENS[kind as TokenKind];
   await saveToken(kind as TokenKind, await askHidden(token.label));
   console.log(`Saved the ${kind} token in the OS keychain.`);

@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { getToken, githubToken } from "./credentials";
+import { getAppVercelToken, getToken, githubToken } from "./credentials";
 import { run } from "./exec";
 import { type Imports, providersFor, rootModule } from "./root";
 import { KitError, type Settings } from "./settings";
@@ -18,10 +18,14 @@ function tofuBinary(): string {
 export async function providerEnv(settings: Settings, config: LocalConfig): Promise<Record<string, string | undefined>> {
   const providers = providersFor(settings);
   const vercel = await getToken("vercel");
+  const own = await getAppVercelToken(settings.name);
+  if (settings.security === "isolated" && !own) {
+    throw new KitError(`${settings.name} is isolated and deploys with its own Vercel token: run \`kit login vercel --app ${settings.name}\`.`);
+  }
   return {
     ...awsEnv(config),
     VERCEL_API_TOKEN: vercel,
-    TF_VAR_vercel_deploy_token: vercel,
+    TF_VAR_vercel_deploy_token: own ?? vercel,
     GITHUB_TOKEN: await githubToken(),
     NEON_API_KEY: providers.includes("neon") ? await getToken("neon") : undefined,
     CLOUDFLARE_API_TOKEN: providers.includes("cloudflare") ? await getToken("cloudflare") : undefined,
