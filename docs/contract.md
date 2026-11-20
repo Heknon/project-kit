@@ -148,6 +148,9 @@ on:
     paths-ignore: ["**/*.md", "docs/**"]
 jobs:
   preview:
+    permissions:
+      contents: read
+      pull-requests: write
     uses: Heknon/project-kit/.github/workflows/preview.yml@<sha>
     secrets: inherit
 ```
@@ -162,6 +165,9 @@ on:
   workflow_dispatch:
 jobs:
   deploy:
+    permissions:
+      contents: read
+      id-token: write
     uses: Heknon/project-kit/.github/workflows/deploy.yml@<sha>
     with:
       production-branch: main
