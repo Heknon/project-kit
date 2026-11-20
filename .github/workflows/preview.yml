@@ -1,0 +1,221 @@
+# Called by an app repository's .github/workflows/preview.yml (docs/contract.md).
+#
+# Every pull request gets its own database branch (when the project has a kit-managed Neon
+# database), migrated to the pull request's schema, and a Vercel preview deployment that
+# uses it. Closing the pull request deletes the branch.
+#
+# One job deploys, then runs the checks on the same runner: GitHub bills every job rounded up
+# to a whole minute plus a runner boot and an install, and reviewers get the preview sooner.
+# A failed check still fails the run.
+#
+# Public repositories: logs and the pull request never show deployment URLs or account names.
+name: Preview
+
+on:
+  workflow_call:
+
+jobs:
+  preview:
+    name: Preview and checks
+    if: github.event.action != 'closed' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    environment:
+      name: preview
+      url: ${{ github.event.repository.private && steps.deploy.outputs.url || '' }}
+    concurrency:
+      group: preview-${{ github.repository }}-${{ github.event.number }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      APP_ENV: preview
+      PR: ${{ github.event.number }}
+      PRIVATE_REPO: ${{ github.event.repository.private }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_SLUG: ${{ secrets.VERCEL_TEAM_SLUG }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+      NEON_DATABASE: ${{ secrets.NEON_DATABASE }}
+      NEON_ROLE: ${{ secrets.NEON_ROLE }}
+      NEON_PARENT_BRANCH: ${{ secrets.NEON_PARENT_BRANCH }}
+    steps:
+      - name: Mask account names
+        run: if [ -n "$VERCEL_TEAM_SLUG" ]; then echo "::add-mask::$VERCEL_TEAM_SLUG"; fi
+
+      - uses: actions/checkout@v4
+
+      - name: Kit helpers
+        run: |
+          cat > "$RUNNER_TEMP/kit.sh" <<'SH'
+          has_script() {
+            bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"
+          }
+          run_script() {
+            if has_script "$1"; then bun run "$1"; else echo "::notice::No $1 script in package.json; skipped."; fi
+          }
+          vercel() {
+            local log="$RUNNER_TEMP/vercel.log"
+            if ! bunx vercel@65.2.0 "$@" --token="$VERCEL_TOKEN" 2> "$log"; then cat "$log" >&2; return 1; fi
+          }
+          neon() {
+            bunx neonctl@2 "$@" --project-id "$NEON_PROJECT_ID"
+          }
+          SH
+          if [ ! -f package.json ]; then
+            echo "::notice::No package.json on this branch; nothing to deploy."
+          elif [ -z "$VERCEL_TOKEN" ]; then
+            echo "::notice::The preview environment has no Vercel secrets (kit apply hasn't run, or this pull request comes from a fork); deploy skipped, checks still run."
+            echo "KIT_APP=true" >> "$GITHUB_ENV"
+          else
+            echo "KIT_APP=true" >> "$GITHUB_ENV"
+            echo "KIT_DEPLOY=true" >> "$GITHUB_ENV"
+          fi
+
+      - uses: oven-sh/setup-bun@v2
+        if: env.KIT_APP == 'true'
+        with:
+          bun-version-file: package.json
+
+      - uses: actions/cache@v4
+        if: env.KIT_APP == 'true'
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install
+        if: env.KIT_APP == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Database branch
+        if: env.KIT_DEPLOY == 'true' && env.NEON_PROJECT_ID != ''
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          branch="preview/pr-$PR"
+          if ! neon branches get "$branch" > /dev/null 2>&1; then
+            neon branches create --name "$branch" --parent "${NEON_PARENT_BRANCH:-dev}" > /dev/null
+          fi
+          direct=$(neon connection-string "$branch" --database-name "$NEON_DATABASE" --role-name "$NEON_ROLE")
+          pooled=$(neon connection-string "$branch" --database-name "$NEON_DATABASE" --role-name "$NEON_ROLE" --pooled)
+          echo "::add-mask::$direct"
+          echo "::add-mask::$pooled"
+          # In a file the next steps source, not $GITHUB_ENV: the checks must not see a database.
+          printf 'export DATABASE_URL=%q DATABASE_URL_UNPOOLED=%q\n' "$pooled" "$direct" > "$RUNNER_TEMP/db.env"
+
+      - name: Migrate
+        if: env.KIT_DEPLOY == 'true'
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          [ -f "$RUNNER_TEMP/db.env" ] && source "$RUNNER_TEMP/db.env"
+          has_script db:migrate:deploy || { echo "::notice::No db:migrate:deploy script; skipped."; exit 0; }
+          [ -n "$DATABASE_URL" ] || { echo "::notice::No preview database; migrations skipped."; exit 0; }
+          # A preview database is a disposable copy: if migrating fails, start it over from its parent once.
+          if ! bun run db:migrate:deploy; then
+            [ -n "$NEON_PROJECT_ID" ] || exit 1
+            echo "::warning::Migrations failed; resetting the preview database to its parent and retrying."
+            neon branches reset "preview/pr-$PR" --parent > /dev/null
+            bun run db:migrate:deploy
+          fi
+
+      - name: Before deploy
+        if: env.KIT_DEPLOY == 'true'
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          [ -f "$RUNNER_TEMP/db.env" ] && source "$RUNNER_TEMP/db.env"
+          run_script kit:pre-deploy
+
+      - name: Deploy
+        id: deploy
+        if: env.KIT_DEPLOY == 'true'
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          [ -f "$RUNNER_TEMP/db.env" ] && source "$RUNNER_TEMP/db.env"
+          vercel pull --yes --environment=preview > /dev/null
+          overrides=()
+          if [ -n "$DATABASE_URL" ]; then
+            overrides+=(--env "DATABASE_URL=$DATABASE_URL" --env "DATABASE_URL_UNPOOLED=$DATABASE_URL_UNPOOLED")
+          fi
+          if grep -q '^S3_BUCKET=' .vercel/.env.preview.local 2> /dev/null; then
+            export S3_PREFIX="preview/pr-$PR/"
+            overrides+=(--env "S3_PREFIX=$S3_PREFIX")
+          fi
+          vercel build > "$RUNNER_TEMP/build.log" 2>&1 || { cat "$RUNNER_TEMP/build.log"; exit 1; }
+          url=$(vercel deploy --prebuilt "${overrides[@]}")
+          if [ "$PRIVATE_REPO" != "true" ]; then echo "::add-mask::$url"; fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          rm -f .vercel/.env.*
+
+      - name: Comment the preview
+        if: env.KIT_DEPLOY == 'true' && github.event.repository.private
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          body="Preview: $URL · commit ${GITHUB_SHA::7}"
+          gh pr comment "$PR" --edit-last --body "$body" || gh pr comment "$PR" --body "$body"
+
+      - name: After deploy
+        if: env.KIT_DEPLOY == 'true'
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          run_script kit:post-deploy
+
+      - name: Checks
+        if: env.KIT_APP == 'true'
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          run_script check
+
+  full-tests:
+    name: Full tests
+    if: >-
+      (github.event.action == 'labeled' && github.event.label.name == 'full-tests')
+      || (github.event.action != 'closed' && github.event.action != 'labeled'
+          && contains(github.event.pull_request.labels.*.name, 'full-tests'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - name: Full tests
+        run: |
+          if bun -e 'process.exit((await Bun.file("package.json").json()).scripts?.["test:full"] ? 0 : 1)'; then
+            bun run test:full
+          else
+            echo "::notice::No test:full script in package.json; skipped."
+          fi
+
+  cleanup:
+    name: Delete the preview database
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    environment: preview
+    permissions: {}
+    env:
+      PR: ${{ github.event.number }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ secrets.NEON_PROJECT_ID }}
+    steps:
+      - uses: oven-sh/setup-bun@v2
+        if: env.NEON_PROJECT_ID != ''
+      - name: Delete the branch (if it exists)
+        if: env.NEON_PROJECT_ID != ''
+        run: |
+          neon() { bunx neonctl@2 "$@" --project-id "$NEON_PROJECT_ID"; }
+          if neon branches get "preview/pr-$PR" > /dev/null 2>&1; then
+            neon branches delete "preview/pr-$PR" > /dev/null
+          fi

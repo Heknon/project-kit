@@ -1,0 +1,51 @@
+# The kit's own checks. preview.yml and deploy.yml in this directory are the reusable
+# workflows app repositories call; this one only runs for the kit.
+name: Kit CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kit-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.13.9
+          tofu_wrapper: false
+      - uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugin-cache
+          key: tofu-providers-${{ hashFiles('cli/root.ts') }}
+      - run: |
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo "TF_PLUGIN_CACHE_DIR=$HOME/.terraform.d/plugin-cache" >> "$GITHUB_ENV"
+      - run: bun install --frozen-lockfile
+      - name: Typecheck and unit tests
+        run: bun run check
+      - name: Format
+        run: tofu fmt -recursive -check modules stacks
+      - name: Module tests
+        run: |
+          for module in modules/*/; do
+            tofu -chdir="$module" init -backend=false -input=false > /dev/null
+            tofu -chdir="$module" validate
+            if ls "$module"*.tftest.hcl > /dev/null 2>&1; then tofu -chdir="$module" test; fi
+          done
+      - name: Generated root modules
+        run: bun scripts/validate-roots.ts
+      - name: Lint workflows
+        run: bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7 && ./actionlint -color

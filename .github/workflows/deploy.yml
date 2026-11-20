@@ -1,0 +1,186 @@
+# Called by an app repository's .github/workflows/deploy.yml (docs/contract.md).
+#
+# dev                → the dev environment: checks, migrations, deploy; the dev domain follows it.
+# production branch  → full tests first, then migrations and a production deploy.
+# Any other branch   → nothing.
+#
+# Migrations run before the new code is live, so they must be backward compatible with the
+# version still serving.
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      production-branch:
+        type: string
+        default: main
+
+jobs:
+  full-tests:
+    name: Full tests
+    if: github.ref_name == inputs.production-branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - name: Checks and full tests
+        run: |
+          for script in check test:full; do
+            if bun -e 'process.exit((await Bun.file("package.json").json()).scripts?.[process.argv[1]] ? 0 : 1)' "$script"; then
+              bun run "$script"
+            else
+              echo "::notice::No $script script in package.json; skipped."
+            fi
+          done
+
+  deploy:
+    name: Deploy ${{ github.ref_name == inputs.production-branch && 'production' || 'dev' }}
+    needs: full-tests
+    # Runs when the full tests passed, or were skipped because this is dev.
+    if: >-
+      !cancelled() && !failure()
+      && (github.ref_name == 'dev' || github.ref_name == inputs.production-branch)
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == inputs.production-branch && 'production' || 'dev' }}
+      url: ${{ github.event.repository.private && steps.deploy.outputs.url || '' }}
+    concurrency:
+      group: deploy-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      APP_ENV: ${{ github.ref_name == inputs.production-branch && 'production' || 'dev' }}
+      PRIVATE_REPO: ${{ github.event.repository.private }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_SLUG: ${{ secrets.VERCEL_TEAM_SLUG }}
+      DEV_DOMAIN: ${{ secrets.DEV_DOMAIN }}
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+    steps:
+      - name: Mask account names
+        run: |
+          if [ -n "$VERCEL_TEAM_SLUG" ]; then echo "::add-mask::$VERCEL_TEAM_SLUG"; fi
+          if [ -n "$DEV_DOMAIN" ] && [ "$PRIVATE_REPO" != "true" ]; then echo "::add-mask::$DEV_DOMAIN"; fi
+
+      - uses: actions/checkout@v4
+
+      - name: Kit helpers
+        run: |
+          cat > "$RUNNER_TEMP/kit.sh" <<'SH'
+          has_script() {
+            bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"
+          }
+          run_script() {
+            if has_script "$1"; then bun run "$1"; else echo "::notice::No $1 script in package.json; skipped."; fi
+          }
+          vercel() {
+            local log="$RUNNER_TEMP/vercel.log"
+            if ! bunx vercel@65.2.0 "$@" --token="$VERCEL_TOKEN" 2> "$log"; then cat "$log" >&2; return 1; fi
+          }
+          SH
+          if [ ! -f package.json ]; then
+            echo "::notice::No package.json on this branch; nothing to deploy."
+          elif [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::The $APP_ENV environment has no Vercel secrets. Run kit apply for this project."
+            exit 1
+          else
+            echo "KIT_APP=true" >> "$GITHUB_ENV"
+          fi
+
+      - uses: oven-sh/setup-bun@v2
+        if: env.KIT_APP == 'true'
+        with:
+          bun-version-file: package.json
+
+      - uses: actions/cache@v4
+        if: env.KIT_APP == 'true'
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install
+        if: env.KIT_APP == 'true'
+        run: bun install --frozen-lockfile
+
+      # Production ran them in Full tests.
+      - name: Checks
+        if: env.KIT_APP == 'true' && env.APP_ENV == 'dev'
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          run_script check
+
+      - name: Migrate
+        if: env.KIT_APP == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          if [ -z "$DATABASE_URL_UNPOOLED" ]; then echo "::notice::No database for $APP_ENV; migrations skipped."; exit 0; fi
+          run_script db:migrate:deploy
+
+      - name: Before deploy
+        if: env.KIT_APP == 'true'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          run_script kit:pre-deploy
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: env.KIT_APP == 'true' && env.AWS_DEPLOY_ROLE_ARN != ''
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: AWS infrastructure
+        if: env.KIT_APP == 'true' && env.AWS_DEPLOY_ROLE_ARN != ''
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          run_script kit:deploy-aws
+
+      - name: Deploy
+        id: deploy
+        if: env.KIT_APP == 'true'
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          if [ "$APP_ENV" = production ]; then
+            vercel pull --yes --environment=production > /dev/null
+            vercel build --prod > "$RUNNER_TEMP/build.log" 2>&1 || { cat "$RUNNER_TEMP/build.log"; exit 1; }
+            url=$(vercel deploy --prebuilt --prod)
+          else
+            # Preview-scoped values, narrowed to the dev branch where it sets its own. The dev
+            # domain is assigned to the dev branch, so this deployment takes it over.
+            vercel pull --yes --environment=preview --git-branch=dev > /dev/null
+            vercel build > "$RUNNER_TEMP/build.log" 2>&1 || { cat "$RUNNER_TEMP/build.log"; exit 1; }
+            vercel deploy --prebuilt > /dev/null
+            url="https://$DEV_DOMAIN"
+          fi
+          if [ "$PRIVATE_REPO" != "true" ]; then echo "::add-mask::$url"; fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          rm -f .vercel/.env.*
+
+      - name: After deploy
+        if: env.KIT_APP == 'true'
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          run_script kit:post-deploy

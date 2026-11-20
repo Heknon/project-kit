@@ -1,0 +1,22 @@
+{
+  "name": "project-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "bin": {
+    "kit": "cli/main.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit && bun test",
+    "test": "bun test",
+    "kit": "bun cli/main.ts"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "typescript": "^5.9.3"
+  }
+}
