@@ -3,6 +3,7 @@ import { getAppVercelToken, getToken, saveAppVercelToken } from "../credentials"
 import { run } from "../exec";
 import { repositoryInfo } from "../github";
 import { ask, askHidden, confirm } from "../prompt";
+import { refuseIsolatedRemotely } from "../mode";
 import { KitError, parseSettings, type Scope, SCOPES, type Settings } from "../settings";
 import { loadLocalConfig, loadSettings, saveSettings } from "../store";
 import { Vercel } from "../vercel";
@@ -45,6 +46,7 @@ export async function newProject(name: string | undefined, options: NewOptions):
 
   const security = (options.security ?? "standard") as Settings["security"];
   if (security !== "standard" && security !== "isolated") throw new KitError("--security is standard or isolated.");
+  refuseIsolatedRemotely({ security, name });
 
   const features = new Set(
     (options.with ?? config.defaults?.features?.join(",") ?? "")

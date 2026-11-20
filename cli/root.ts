@@ -1,4 +1,5 @@
 import { googleReady, type Settings } from "./settings";
+import { folderOf, stateKey } from "./store";
 
 export const PROVIDER_VERSIONS = {
   aws: { source: "hashicorp/aws", version: "~> 6.73" },
@@ -62,7 +63,7 @@ export function rootModule(settings: Settings, backend: Backend, imports: Import
 
   backend "s3" {
     bucket       = ${hcl(backend.bucket)}
-    key          = ${hcl(`projects/${settings.name}/tofu.tfstate`)}
+    key          = ${hcl(stateKey(folderOf(settings), settings.name))}
     region       = ${hcl(backend.region)}
     use_lockfile = true
     encrypt      = true
@@ -94,6 +95,12 @@ provider "github" {
   }
 }`);
   }
+  const boundary = providers.includes("aws") && settings.security === "standard";
+  if (boundary) {
+    blocks.push(`data "aws_iam_policy" "app_boundary" {
+  name = "project-kit-app-boundary"
+}`);
+  }
   if (providers.includes("neon")) blocks.push(`provider "neon" {}`);
   if (providers.includes("cloudflare")) blocks.push(`provider "cloudflare" {}`);
 
@@ -115,6 +122,7 @@ provider "github" {
   app_origins         = ${hcl([`https://${settings.domains.production}`, `https://${settings.domains.dev}`])}
   existing_buckets    = ${hcl(settings.storage.existingBuckets ?? null)}
   versioning          = ${hcl(settings.storage.versioning)}
+  permissions_boundary_arn = ${boundary ? "data.aws_iam_policy.app_boundary.arn" : "null"}
 }`);
   }
 
@@ -124,6 +132,7 @@ provider "github" {
   name        = ${hcl(settings.name)}
   repository  = ${hcl(settings.repository)}
   policy_arns = ${hcl(settings.awsDeploy.policyArns)}
+  permissions_boundary_arn = ${boundary ? "data.aws_iam_policy.app_boundary.arn" : "null"}
 }`);
   }
 

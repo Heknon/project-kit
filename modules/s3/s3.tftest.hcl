@@ -28,7 +28,7 @@ run "new_buckets" {
   command = plan
 
   assert {
-    condition     = startswith(aws_s3_bucket.this["dev"].bucket, "app-dev-")
+    condition     = startswith(aws_s3_bucket.this["dev"].bucket, "kit-app-dev-")
     error_message = "new buckets get a random suffix"
   }
 

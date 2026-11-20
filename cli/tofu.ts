@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { getAppVercelToken, getToken, githubToken } from "./credentials";
 import { run } from "./exec";
 import { type Imports, providersFor, rootModule } from "./root";
+import { assumeYes } from "./mode";
 import { KitError, type Settings } from "./settings";
 import { awsEnv, type LocalConfig } from "./store";
 
@@ -61,7 +62,11 @@ export class Workspace {
   }
 
   async apply(): Promise<void> {
-    await this.tofu(["apply", "-input=true"], true);
+    await this.tofu(["apply", assumeYes() ? "-auto-approve" : "-input=true"], true);
+  }
+
+  async destroy(): Promise<void> {
+    await this.tofu(["destroy", assumeYes() ? "-auto-approve" : "-input=true"], true);
   }
 
   async output<T>(name: string): Promise<T> {
@@ -73,12 +78,4 @@ export class Workspace {
   async close(): Promise<void> {
     await rm(join(this.dir, "main.tf"), { force: true });
   }
-}
-
-export async function stateExists(config: LocalConfig, name: string): Promise<boolean> {
-  const result = await run(
-    ["aws", "s3api", "head-object", "--bucket", config.bucket, "--key", `projects/${name}/tofu.tfstate`, "--region", config.region],
-    { env: awsEnv(config), allowFailure: true },
-  );
-  return result.code === 0;
 }

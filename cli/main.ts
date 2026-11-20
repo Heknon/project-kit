@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { parseArgs } from "node:util";
 import { apply, check, destroy, plan } from "./commands/apply";
+import { control } from "./commands/control";
 import { google } from "./commands/google";
 import { init, login } from "./commands/init";
 import { newProject } from "./commands/new";
@@ -22,6 +23,7 @@ const USAGE = `kit ${KIT_VERSION}: deployment setup for GitHub + Vercel + Neon +
         [--env scope:NAME=value ...] [--starter next|none] [--public] [--yes]
   kit shared google                 save the Google client standard apps share
   kit shared set <NAME>             save a secret standard apps share
+  kit control <owner/repo> [--shared NAME,...]   set up the private control repository (standard projects only)
   kit list
   kit settings <name> [--edit | --history | --show <version id>]
   kit plan <name>
@@ -62,6 +64,7 @@ async function main(argv: string[]): Promise<void> {
     },
   });
   const [command, ...rest] = positionals;
+  if (values.yes) process.env.KIT_YES = "1";
 
   switch (values.help ? "help" : command) {
     case "init":
@@ -103,6 +106,8 @@ async function main(argv: string[]): Promise<void> {
       return sync(rest[0], { ref: values.ref, base: values.base });
     case "check":
       return check(rest[0]);
+    case "control":
+      return control(rest[0], { shared: values.shared });
     case "destroy":
       return destroy(rest[0]);
     case "shared":

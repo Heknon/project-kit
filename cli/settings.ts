@@ -117,6 +117,13 @@ export const Settings = z
         ctx.addIssue({ code: "custom", path: ["generated"], message: `${name} is both generated and supplied` });
       }
     }
+    if (settings.security === "standard" && settings.storage.kind === "s3" && settings.storage.existingBuckets) {
+      for (const bucket of Object.values(settings.storage.existingBuckets)) {
+        if (!bucket.startsWith("kit-")) {
+          ctx.addIssue({ code: "custom", path: ["storage", "existingBuckets"], message: `standard apps only use kit-* buckets; adopt ${bucket} in an isolated project` });
+        }
+      }
+    }
     if (settings.security === "isolated") {
       if (settings.google?.client === "shared") {
         ctx.addIssue({ code: "custom", path: ["google", "client"], message: "an isolated app has its own Google clients" });

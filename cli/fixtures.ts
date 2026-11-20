@@ -25,6 +25,7 @@ export const FIXTURES = {
   }),
   postgres: parseSettings({
     ...base,
+    security: "isolated",
     database: { kind: "postgres" },
     storage: { kind: "s3", existingBuckets: { production: "old-prod", dev: "old-dev" } },
     google: {},
