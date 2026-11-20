@@ -103,3 +103,12 @@ run "everything" {
     error_message = "identifiers are plain, secrets are sensitive"
   }
 }
+
+# A sensitive database must not make the keys of the GitHub secrets sensitive.
+run "sensitive_database" {
+  command = plan
+
+  module {
+    source = "./tests/sensitive-database"
+  }
+}
