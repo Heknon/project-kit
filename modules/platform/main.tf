@@ -8,12 +8,14 @@ terraform {
 
 locals {
   repository_name = split("/", var.repository)[1]
-  has_database    = var.database != null
-  has_neon        = local.has_database && try(var.database.neon != null, false)
-  has_storage     = var.storage != null
-  has_google      = var.google != null
-  auth_secret     = local.has_google || contains(var.generated, "AUTH_SECRET")
-  generated       = toset([for name in var.generated : name if name != "AUTH_SECRET"])
+  # Whether there is a database is no secret, but its URLs are: without nonsensitive the
+  # comparison is sensitive too, and nothing keyed on it can be used in for_each.
+  has_database = nonsensitive(var.database != null)
+  has_neon     = local.has_database && nonsensitive(try(var.database.neon != null, false))
+  has_storage  = var.storage != null
+  has_google   = var.google != null
+  auth_secret  = local.has_google || contains(var.generated, "AUTH_SECRET")
+  generated    = toset([for name in var.generated : name if name != "AUTH_SECRET"])
 }
 
 resource "random_password" "auth_secret" {

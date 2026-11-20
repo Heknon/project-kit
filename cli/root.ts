@@ -97,8 +97,11 @@ provider "github" {
   }
   const boundary = providers.includes("aws") && settings.security === "standard";
   if (boundary) {
-    blocks.push(`data "aws_iam_policy" "app_boundary" {
-  name = "project-kit-app-boundary"
+    // By ARN: looking it up by name lists every policy, which the control role may not do.
+    blocks.push(`data "aws_caller_identity" "current" {}
+
+data "aws_iam_policy" "app_boundary" {
+  arn = "arn:aws:iam::\${data.aws_caller_identity.current.account_id}:policy/project-kit/project-kit-app-boundary"
 }`);
   }
   if (providers.includes("neon")) blocks.push(`provider "neon" {}`);
