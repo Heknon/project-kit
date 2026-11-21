@@ -118,10 +118,16 @@ The workflows tell the two kinds of app apart by their files:
 A `package.json` makes the app a Bun app even when it also has a `pyproject.toml`. A
 `pyproject.toml` without `uv.lock` fails the run.
 
+A Bun app with `pyproject.toml` and `uv.lock` (for example Next.js pages next to Python
+functions in `api/`) gets Python set up as well: both installs run, and each script is taken
+from `[tool.project-kit.scripts]` when it is declared there, otherwise from `package.json`. Its
+Python check can then run the Bun one too (`bun run check` at the end of its command).
+
 ### Scripts
 
 All optional; a missing script is skipped with a notice. A Bun app declares them in
-`package.json` `scripts`; a Python app in `[tool.project-kit.scripts]` of `pyproject.toml`.
+`package.json` `scripts`; a Python app in `[tool.project-kit.scripts]` of `pyproject.toml`; a
+Bun app with Python in either, `pyproject.toml` first.
 
 | Script | When it runs | Environment |
 |---|---|---|

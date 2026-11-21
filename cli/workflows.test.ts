@@ -88,8 +88,8 @@ describe.skipIf(!bash)("kit helpers", () => {
     expect(out).toContain("::notice::No test:full script in package.json; skipped.");
   });
 
-  test("package.json wins over pyproject.toml", async () => {
-    const { out } = await inApp({ "package.json": "{}", "pyproject.toml": PYPROJECT, "uv.lock": "" }, "kit_detect");
+  test("package.json without pyproject.toml is a Bun app only", async () => {
+    const { out } = await inApp({ "package.json": "{}" }, "kit_detect");
     expect(out).toBe("KIT_LANG=bun\n");
   });
 
@@ -131,9 +131,37 @@ describe.skipIf(!bash)("kit helpers", () => {
       expect(err).toContain('Set requires-python = ">=3.12" in pyproject.toml, or add .python-version.');
     });
 
+    test("a Bun app with pyproject.toml and uv.lock gets Python too", async () => {
+      const { code, out, temp } = await inApp(
+        { "package.json": "{}", "pyproject.toml": PYPROJECT, "uv.lock": "" },
+        "kit_detect",
+      );
+      expect(code).toBe(0);
+      expect(out).toBe(`KIT_LANG=bun\nKIT_PYTHON=3.14\nUV_PYTHON=3.14\nUV_PROJECT_ENVIRONMENT=${temp}/venv\n`);
+    });
+
+    test("in a Bun app with Python, [tool.project-kit.scripts] comes first, then package.json", async () => {
+      const files = {
+        "package.json": JSON.stringify({ scripts: { check: "echo bun-checked", lint: "echo bun-linted" } }),
+        "pyproject.toml": PYPROJECT,
+        "uv.lock": "",
+      };
+      const commands = `export KIT_LANG=bun KIT_PYTHON=3.14 APP_ENV=dev
+        uv() { echo "uv $1 $2 $3"; shift 3; "$@"; }
+        run_script check
+        run_script lint
+        run_script test:full`;
+      const { code, out } = await inApp(files, commands);
+      expect(code).toBe(0);
+      expect(out).toContain("uv run --frozen --\nchecked dev\n");
+      expect(out).not.toContain("bun-checked");
+      expect(out).toContain("bun-linted");
+      expect(out).toContain("::notice::No test:full script in package.json or [tool.project-kit.scripts] of pyproject.toml; skipped.");
+    });
+
     test("scripts come from [tool.project-kit.scripts] and run through uv", async () => {
       // uv stands in for `uv run --frozen -- bash -c <command>`.
-      const commands = `export KIT_LANG=python APP_ENV=dev
+      const commands = `export KIT_LANG=python KIT_PYTHON=3.14 APP_ENV=dev
         uv() { echo "uv $1 $2 $3"; shift 3; "$@"; }
         has_script db:migrate:deploy && echo has-migrate
         run_script check
