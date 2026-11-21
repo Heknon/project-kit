@@ -55,9 +55,9 @@ request deletes it.
 
 No access keys exist. On Vercel, get credentials with
 `awsCredentialsProvider({ roleArn: process.env.S3_ROLE_ARN })` from
-`@vercel/oidc-aws-credentials-provider`. Locally, fall back to the default AWS credential
-chain, or to `S3_ENDPOINT` + `S3_ACCESS_KEY_ID` + `S3_SECRET_ACCESS_KEY` for MinIO.
-Objects under `preview/` expire after 14 days.
+`@vercel/oidc-aws-credentials-provider` (Python: [S3 from Python](#s3-from-python)). Locally,
+fall back to the default AWS credential chain, or to `S3_ENDPOINT` + `S3_ACCESS_KEY_ID` +
+`S3_SECRET_ACCESS_KEY` for MinIO. Objects under `preview/` expire after 14 days.
 
 Browser uploads use presigned URLs; the bucket's CORS allows the production domain, the dev
 domain, `*.vercel.app` previews of the project's team and `http://localhost:*`.
@@ -106,14 +106,22 @@ The project settings list extra names:
 
 ## What the app provides
 
-### Package manager
+### Language and package manager
 
-Bun, declared in `package.json` (`"packageManager": "bun@<version>"`) with a committed
-`bun.lock`. The workflows install with `bun install --frozen-lockfile`.
+The workflows tell the two kinds of app apart by their files:
+
+| App | Files | Install |
+|---|---|---|
+| Bun | `package.json` with `"packageManager": "bun@<version>"`, and a committed `bun.lock` | `bun install --frozen-lockfile` |
+| Python | `pyproject.toml` and a committed `uv.lock`, no `package.json` ([Python apps](#python-apps)) | `uv sync --frozen` |
+
+A `package.json` makes the app a Bun app even when it also has a `pyproject.toml`. A
+`pyproject.toml` without `uv.lock` fails the run.
 
 ### Scripts
 
-All optional; a missing script is skipped with a notice.
+All optional; a missing script is skipped with a notice. A Bun app declares them in
+`package.json` `scripts`; a Python app in `[tool.project-kit.scripts]` of `pyproject.toml`.
 
 | Script | When it runs | Environment |
 |---|---|---|
@@ -187,6 +195,91 @@ Inputs (all optional):
 
 `.env.example` lists every variable with a comment, no values. To work against the dev
 resources: `bunx vercel env pull .env.local --environment=preview --git-branch=dev`.
+
+## Python apps
+
+A Python app is Vercel Python functions (every `.py` file in `api/` is a function at its
+path, exposing `handler`, a `BaseHTTPRequestHandler` subclass, or `app`, an ASGI/WSGI
+application), or a Python framework Vercel detects (FastAPI, Flask, Django). `kit new
+--starter python` starts one (`starters/python`).
+
+### What it provides
+
+- `pyproject.toml` with `[project] requires-python` (for example `">=3.14"`), and a committed
+  `uv.lock` (`uv lock`). Vercel runs Python 3.12, 3.13 and 3.14.
+- Optionally `.python-version` (`uv python pin 3.14`). The workflows use its version, else the
+  lowest version `requires-python` allows; Vercel reads the same files. Below 3.12 fails the run.
+- Optionally `[tool.uv] required-version` to pin uv; otherwise the workflows use the latest.
+- Scripts, as shell commands:
+
+  ```toml
+  [tool.project-kit.scripts]
+  check = "scripts/check.sh"              # or "ruff check && pytest"
+  "test:full" = "pytest -m slow"
+  "db:migrate:deploy" = "alembic upgrade head"
+  ```
+
+  The names, and when each runs, are the ones in [Scripts](#scripts). Each runs from the
+  repository root as `uv run --frozen -- bash -c "<command>"`, so the project's dependencies,
+  dev group included, are on `PATH` and `python` is the project's interpreter.
+- `vercel.json` with `"git": { "deploymentEnabled": false }`, as every app.
+- A `public/` directory for static files, even if it holds only `robots.txt`: without one,
+  Vercel serves the repository root as static files (`pyproject.toml`, source, tests).
+- `.vercelignore` for what a function must not bundle (tests, data); Vercel bundles every file
+  a Python function can reach and does no tree-shaking.
+
+### What the workflows do with it
+
+The same steps as a Bun app, with Python set up instead: Python from `actions/setup-python`,
+uv from `astral-sh/setup-uv`, `uv sync --frozen` into an environment outside the checkout.
+Bun is set up too, only to run the Vercel and Neon CLIs. `vercel build` then builds the
+functions on the runner the way Vercel would (its Python builder installs the dependencies
+from `pyproject.toml` and `uv.lock`), and `vercel deploy --prebuilt` uploads the result.
+
+The Vercel project needs no framework, build or install command: the kit sets none, and
+Vercel detects the Python functions or framework.
+
+### S3 from Python
+
+There are no access keys. The function exchanges its Vercel OIDC token for the role in
+`S3_ROLE_ARN`. In a deployed function the token is the `x-vercel-oidc-token` request header
+(it rotates; read it on every request); in builds and in a `.env.local` from
+`vercel env pull` it is `VERCEL_OIDC_TOKEN`.
+
+```python
+import os
+import boto3
+
+def s3_client(headers):  # the request's headers, e.g. BaseHTTPRequestHandler.headers
+    region = os.environ["S3_REGION"]
+    token = headers.get("x-vercel-oidc-token") or os.environ.get("VERCEL_OIDC_TOKEN")
+    credentials = boto3.client("sts", region_name=region).assume_role_with_web_identity(
+        RoleArn=os.environ["S3_ROLE_ARN"],
+        RoleSessionName=os.environ.get("VERCEL_DEPLOYMENT_ID", "app"),
+        WebIdentityToken=token,
+    )["Credentials"]
+    return boto3.client(
+        "s3",
+        region_name=region,
+        aws_access_key_id=credentials["AccessKeyId"],
+        aws_secret_access_key=credentials["SecretAccessKey"],
+        aws_session_token=credentials["SessionToken"],
+    )
+```
+
+- Use `S3_REGION` for both the STS and the S3 client: the bucket lives there, and a regional
+  STS endpoint avoids the global one.
+- Prefix every key with `S3_PREFIX` (`os.environ.get("S3_PREFIX", "")`): empty in production,
+  `dev/` in dev, `preview/pr-<n>/` in previews. Previews and dev share the dev bucket, and the
+  role lets them write anywhere in it, so the prefix is what keeps them apart.
+- The credentials last up to an hour (`credentials["Expiration"]`); a warm function may reuse
+  the client until then.
+- The role trusts only deployed functions (Production, and Preview for dev and previews), so a
+  token from `vercel env pull` (the Development environment) is refused. Locally, leave
+  `S3_ROLE_ARN` unset and use the default AWS credential chain (`boto3.client("s3")`), or
+  `S3_ENDPOINT` with `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` for MinIO.
+
+`starters/python/storage.py` does all of this.
 
 ## What public repositories never contain
 

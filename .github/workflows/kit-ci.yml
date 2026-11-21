@@ -45,6 +45,10 @@ jobs:
             tofu -chdir="$module" validate
             if ls "$module"*.tftest.hcl > /dev/null 2>&1; then tofu -chdir="$module" test; fi
           done
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Python starter
+        working-directory: starters/python
+        run: uv sync --frozen && uv run --frozen -- bash -c "$(python3 -I -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["tool"]["project-kit"]["scripts"]["check"])')"
       - name: Generated root modules
         run: bun scripts/validate-roots.ts
       - name: Lint workflows

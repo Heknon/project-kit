@@ -1,0 +1,30 @@
+[project]
+# The kit deploys the project as is; it is never built or published, so the name stays "app".
+name = "app"
+version = "0.1.0"
+description = "__APP_NAME__"
+requires-python = ">=3.14"
+dependencies = [
+    "boto3>=1.40",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "ruff>=0.14",
+]
+
+# Scripts the project-kit workflows run (docs/contract.md in the kit), each a shell command
+# run with `uv run`. Missing ones are skipped.
+[tool.project-kit.scripts]
+check = "ruff format --check && ruff check && pytest"
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

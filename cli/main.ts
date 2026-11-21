@@ -20,7 +20,7 @@ const USAGE = `kit ${KIT_VERSION}: deployment setup for GitHub + Vercel + Neon +
         [--repo owner/name] [--with neon|postgres,s3,google,cron,aws-deploy] [--security isolated]
         [--domain d] [--dev-domain d] [--production-branch b] [--deploy push|dispatch]
         [--generate A,B] [--supply NAME[:scope+scope],...] [--shared NAME,...]
-        [--env scope:NAME=value ...] [--starter next|none] [--public] [--yes]
+        [--env scope:NAME=value ...] [--starter next|python|none] [--public] [--yes]
   kit shared google                 save the Google client standard apps share
   kit shared set <NAME>             save a secret standard apps share
   kit control <owner/repo> [--shared NAME,...]   set up the private control repository (standard projects only)
