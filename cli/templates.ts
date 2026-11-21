@@ -37,6 +37,11 @@ on:
     branches: ${pushBranches}
     paths-ignore: ["**/*.md", "docs/**"]
   workflow_dispatch:
+    inputs:
+      rotate:
+        description: Generated variables to replace with new values, comma separated
+        type: string
+        default: ""
 
 jobs:
   deploy:
@@ -46,6 +51,7 @@ jobs:
     uses: ${KIT_REPOSITORY}/.github/workflows/deploy.yml@${ref} # ${version}
     with:
       production-branch: ${settings.productionBranch}
+      rotate: \${{ inputs.rotate }}
     secrets: inherit
 `,
     ".github/dependabot.yml": `# Managed by project-kit (kit sync): new kit releases arrive as pull requests.

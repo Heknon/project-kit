@@ -5,7 +5,9 @@ this contract deploys with the kit's workflows and needs no other setup.
 
 Nothing project-specific is ever committed to the app repository: no domains, ids, ARNs,
 bucket names or URLs. Values reach the app as Vercel environment variables and reach the
-workflows as GitHub environment secrets, both written by `kit apply`.
+workflows as GitHub environment secrets, both written by `kit apply`. Variables the app
+declares in its own repository are the exception: its workflows write them
+([Variables the repository declares](#variables-the-repository-declares)).
 
 ## Environments
 
@@ -104,6 +106,57 @@ The project settings list extra names:
   `kit secret set <project> <NAME>`; the kit writes them to Vercel and keeps no copy;
 - **plain** values per environment (for example `VITE_RUNTIME=server`).
 
+### Variables the repository declares
+
+An app can declare variables in its own repository instead of the project settings. The
+Deploy and Preview workflows put them on Vercel before they migrate and build, so nobody runs
+`kit apply` or `kit secret set` for them. Declare them where the scripts are declared:
+`[tool.project-kit.env]` of `pyproject.toml`, or `"project-kit": { "env": { … } }` of
+`package.json` (one of the two, not both).
+
+```toml
+[tool.project-kit.env]
+PERSONALITY_SECRET = { scopes = ["production"], generate = true }
+ATTRIBUTION_SECRET = { scopes = ["production"], generate = true }
+SMTP_URL = { scopes = ["production", "dev"] }
+PUBLIC_BOT = { scopes = ["production"], sensitive = false, optional = true }
+```
+
+```json
+{ "project-kit": { "env": { "PERSONALITY_SECRET": { "scopes": ["production"], "generate": true } } } }
+```
+
+| Field | Default | |
+|---|---|---|
+| `scopes` | required | `production`, `dev`, `preview`: the [environments](#environments) the variable is set in |
+| `generate` | `false` | a random value (32 bytes, hex), created in each scope where the variable is missing and never overwritten |
+| `sensitive` | `true` | `false`: the value may come from a GitHub Actions variable, and is stored readable on Vercel |
+| `optional` | `false` | a value from GitHub that may be missing: the variable is then left out instead of failing the run |
+
+Where the values come from, in the run of each scope (Deploy for `production` and `dev`,
+Preview for `preview`):
+
+- `generate = true`: created when the scope has no such variable on Vercel, stored as a
+  sensitive variable. To replace values, run Deploy by hand on the branch with
+  `rotate: NAME,NAME`.
+- otherwise, the GitHub secret of the same name, from the job's environment (`production`,
+  `dev`, `preview`) or the repository; for `sensitive = false`, else the GitHub Actions
+  variable of that name. These are written on every run, so GitHub stays the source of truth:
+  change the secret, deploy, done. A missing value fails the run, unless `optional = true`.
+
+Every generated or secret value is masked in the log and never printed. Vercel's `preview`
+scope also reaches dev deployments, unless the variable is declared for `dev` too. A pull
+request's preview run reads the declaration on the pull request's branch.
+
+The names follow the same rules as the settings: upper case, not a [kit name](#environment-variables-the-app-receives),
+and not one the workflows read (`VERCEL_*`, `NEON_*`, `GITHUB_*`, `AWS_REGION`, …). A
+declared name belongs to the repository: `kit apply` doesn't set, replace or delete it,
+`kit plan` and `kit check` don't count it as drift, and the kit refuses to apply while the
+project settings declare the same name (on the production branch or `dev`). To move a name
+from the settings to the repository, remove it from the settings and apply, then declare it
+and deploy; a generated value is replaced on the way. Variables neither declares are left
+alone.
+
 ## What the app provides
 
 ### Language and package manager
@@ -177,6 +230,11 @@ on:
     branches: [dev]          # add the production branch for "deploy production on push"
     paths-ignore: ["**/*.md", "docs/**"]
   workflow_dispatch:
+    inputs:
+      rotate:
+        description: Generated variables to replace with new values, comma separated
+        type: string
+        default: ""
 jobs:
   deploy:
     permissions:
@@ -185,6 +243,7 @@ jobs:
     uses: Heknon/project-kit/.github/workflows/deploy.yml@<sha>
     with:
       production-branch: main
+      rotate: ${{ inputs.rotate }}
     secrets: inherit
 ```
 
@@ -196,6 +255,7 @@ Inputs (all optional):
 | Input | Default | |
 |---|---|---|
 | `production-branch` | `main` | the branch that deploys to production |
+| `rotate` | empty | Deploy only: generated [repository variables](#variables-the-repository-declares) to replace with new values in this run's scope |
 
 ### Local development
 
@@ -289,6 +349,10 @@ def s3_client(headers):  # the request's headers, e.g. BaseHTTPRequestHandler.he
 
 ## What public repositories never contain
 
-The workflows read only `secrets.*`, never `vars.*` (variables are printed in logs). On a
+The workflows read `secrets.*`, never `vars.*` by name (variables are printed in logs). The
+one exception: when the repository [declares](#variables-the-repository-declares) a variable
+with `sensitive = false`, the step that writes it reads the Actions variables, and the log
+then shows the repository's and the environment's variables. Keep only values in them that
+may be public. On a
 public repository they also don't comment preview URLs or set environment URLs, and they
 mask the Vercel team slug, so logs show nothing that identifies the project's accounts.

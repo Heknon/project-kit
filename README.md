@@ -35,6 +35,7 @@ feature/* ──PR──▶ preview     database branch preview/pr-<n> → migra
 | Values apps and workflows use | GitHub environment secrets and Vercel environment variables, written by `kit apply` |
 | Secrets you supply (Google client secrets, API keys) | Written once to Vercel by `kit google` / `kit secret set`; the kit keeps no copy |
 | Secrets the kit generates (`AUTH_SECRET`, `CRON_SECRET`, …) and database passwords | OpenTofu state |
+| Variables the app repository declares (`[tool.project-kit.env]`) | Vercel, written by the app's Deploy and Preview workflows: generated once, or copied from its GitHub secrets on every deploy |
 | Project settings and state | A private, versioned S3 bucket in your AWS account (`projects/<name>/`) |
 | Your Vercel, Neon and Cloudflare tokens | The OS keychain; GitHub access comes from `gh auth` |
 
@@ -137,6 +138,8 @@ Afterwards:
 | What would change | `kit plan myapp` |
 | Drift and leaked identifiers | `kit check myapp` |
 | Rotate a supplied secret | `kit secret set myapp NAME` |
+| A variable the app sets itself (generated, or from a GitHub secret) | declare it in the app repository ([docs/contract.md](docs/contract.md#variables-the-repository-declares)), then deploy |
+| Rotate a generated variable the repository declares | run Deploy by hand on the branch, with `rotate: NAME` |
 | Move an app to a newer kit | merge Dependabot's pull request, or `kit sync myapp` |
 
 ## Settings
@@ -153,7 +156,7 @@ Afterwards:
 | `storage.kind` | `none` or `s3`; `existingBuckets` adopts buckets you have |
 | `google` | Google sign-in; `kit google` fills in the client ids |
 | `cron` | `CRON_SECRET` in production |
-| `generated`, `supplied`, `env` | the project's own variables: random secrets, secrets you set, plain values per scope |
+| `generated`, `supplied`, `env` | the project's own variables: random secrets, secrets you set, plain values per scope. Names the app repository declares itself stay out of them |
 | `awsDeploy` | a GitHub OIDC role for `kit:deploy-aws` (CDK and the like) |
 
 ## Developing the kit
@@ -161,5 +164,6 @@ Afterwards:
 ```sh
 bun run check                    # typecheck and unit tests
 bun scripts/validate-roots.ts    # generated root modules are valid OpenTofu
+bun scripts/embed-repo-env.ts    # after changing cli/repo-env.ts: copies it into the workflows
 tofu -chdir=modules/platform test
 ```

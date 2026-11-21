@@ -1,22 +1,7 @@
 import { z } from "zod";
+import { CONTRACT_NAMES } from "./repo-env";
 
-/** Names the kit sets itself (docs/contract.md); a project's own values may not reuse them. */
-export const CONTRACT_NAMES = new Set([
-  "APP_ENV",
-  "APP_URL",
-  "CRON_SECRET",
-  "DATABASE_URL",
-  "DATABASE_URL_UNPOOLED",
-  "S3_BUCKET",
-  "S3_REGION",
-  "S3_PREFIX",
-  "S3_ROLE_ARN",
-  "AUTH_SECRET",
-  "AUTH_URL",
-  "AUTH_REDIRECT_PROXY_URL",
-  "AUTH_GOOGLE_ID",
-  "AUTH_GOOGLE_SECRET",
-]);
+export { CONTRACT_NAMES };
 
 const envName = z
   .string()

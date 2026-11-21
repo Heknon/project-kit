@@ -44,3 +44,12 @@ export async function oidcSubjectPrefixes(repository: string): Promise<string[]>
   if (result.code !== 0) throw new KitError(`Can't read ${repository} to build its OIDC subject. Check \`gh auth status\` and the repository name.`);
   return subjectPrefixes(JSON.parse(result.stdout) as RepositoryIds);
 }
+
+/** A file's text on a branch; null when the branch or the file doesn't exist. */
+export async function repositoryFile(repository: string, path: string, ref: string): Promise<string | null> {
+  const endpoint = `repos/${repository}/contents/${path}?ref=${encodeURIComponent(ref)}`;
+  const result = await run(["gh", "api", endpoint, "-H", "Accept: application/vnd.github.raw"], { allowFailure: true });
+  if (result.code === 0) return result.stdout;
+  if (/HTTP 404|Not Found|empty/i.test(result.stderr)) return null;
+  throw new KitError(`Can't read ${path} on ${ref} of ${repository}: ${result.stderr.trim().split("\n").at(-1)}. Check \`gh auth status\`.`);
+}

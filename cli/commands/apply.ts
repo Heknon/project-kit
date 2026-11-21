@@ -1,4 +1,4 @@
-import { survey } from "../adopt";
+import { ownershipConflicts, repoDeclared, survey } from "../adopt";
 import { getSharedGoogleClient, getSharedSecret, getToken, type SharedGoogleClient } from "../credentials";
 import { run } from "../exec";
 import { clientSpecs, copyToClipboard, openUrl, verifyRedirect } from "../google";
@@ -79,12 +79,21 @@ async function registerRedirects(settings: Settings, shared: SharedGoogleClient)
 /**
  * Generates the root module, adopts what already exists (imports for resources that aren't
  * in the state yet), and refuses to start while a Marketplace integration owns names the kit
- * is about to set.
+ * is about to set, or while the settings declare a name the repository declares too.
  */
 async function prepare(config: LocalConfig, settings: Settings, vercel: Vercel): Promise<Workspace> {
   for (const note of pending(settings)) console.log(note);
 
-  const adoption = await survey(settings, vercel);
+  const repoOwned = new Set((await repoDeclared(settings)).map((v) => v.name));
+  const both = ownershipConflicts(settings, repoOwned);
+  if (both.length > 0) {
+    throw new KitError(
+      `${both.join(", ")}: declared by ${settings.repository}, whose workflows set them, and in the settings too. Remove them from the settings (\`kit settings ${settings.name} --edit\`), then run this again.`,
+    );
+  }
+  if (repoOwned.size > 0) console.log(`Declared by ${settings.repository} and set by its workflows; left alone: ${[...repoOwned].join(", ")}.`);
+
+  const adoption = await survey(settings, vercel, repoOwned);
   if (adoption.integrations.length > 0) {
     throw new KitError(
       [

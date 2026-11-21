@@ -50,6 +50,60 @@ test("Python setup is pinned and only runs for Python apps", async () => {
   expect(text).toContain("uv sync --frozen");
 });
 
+/** The repo-env.ts heredoc of each Repository variables step, by job. */
+async function repoEnvCopies(): Promise<Record<string, string>> {
+  const found: Record<string, string> = {};
+  for (const file of WORKFLOWS) {
+    for (const [job, { steps }] of Object.entries((await workflow(file)).jobs)) {
+      const run = steps.find((step) => step.name === "Repository variables")?.run;
+      const script = run?.match(/<<'TS'\n([\s\S]*?)\nTS\n/)?.[1];
+      if (script) found[`${file}:${job}`] = script;
+    }
+  }
+  return found;
+}
+
+describe("repository variables", () => {
+  test("the deploying jobs run a copy of cli/repo-env.ts (refresh: bun scripts/embed-repo-env.ts)", async () => {
+    const source = (await Bun.file(join(KIT_DIR, "cli", "repo-env.ts")).text()).trimEnd();
+    const copies = await repoEnvCopies();
+    expect(Object.keys(copies).sort()).toEqual(["deploy.yml:deploy", "preview.yml:preview"]);
+    for (const copy of Object.values(copies)) expect(copy).toBe(source);
+    expect(source).not.toContain("${{");
+  });
+
+  test("set after the install and before migrations and the build; GitHub values only in the step that writes", async () => {
+    for (const [file, job] of [["deploy.yml", "deploy"], ["preview.yml", "preview"]] as const) {
+      const { steps } = (await workflow(file)).jobs[job] as { steps: (Step & { env?: Record<string, string> })[] };
+      const at = (name: string) => steps.findIndex((step) => step.name === name);
+      expect(at("Repository variables")).toBeGreaterThan(at("Install"));
+      expect(at("Write repository variables")).toBe(at("Repository variables") + 1);
+      expect(at("Write repository variables")).toBeLessThan(at("Migrate"));
+      expect(at("Write repository variables")).toBeLessThan(at("Deploy"));
+      for (const step of steps) {
+        // The embedded script talks about vars; the step's expressions are outside run.
+        const text = JSON.stringify({ ...step, run: undefined });
+        const writes = step.name === "Write repository variables";
+        expect(text.includes("toJSON(secrets)")).toBe(writes);
+        expect(/\bvars\b/.test(text)).toBe(writes);
+      }
+      const write = steps[at("Write repository variables")];
+      expect(write?.env?.KIT_VARS).toBe("${{ steps.repo-env.outputs.vars == 'true' && toJSON(vars) || '{}' }}");
+    }
+  });
+
+  test("the copy runs on its own in an app checkout", async () => {
+    const [script] = Object.values(await repoEnvCopies());
+    const temp = await tempDir();
+    const app = await tempDir();
+    await Bun.write(join(temp, "repo-env.ts"), `${script}\n`);
+    await Bun.write(join(app, "package.json"), JSON.stringify({ "project-kit": { env: { PUBLIC_BOT: { scopes: ["production"], sensitive: false } } } }));
+    const result = Bun.spawnSync([process.execPath, join(temp, "repo-env.ts"), "--check"], { cwd: app });
+    expect(result.stderr.toString()).toBe("");
+    expect(result.stdout.toString()).toBe("declared=true\nvars=true\n");
+  });
+});
+
 const bash = Bun.which("bash");
 const python = !!bash && Bun.spawnSync([bash, "-c", "python3 -c 'import tomllib'"], { stdout: "ignore", stderr: "ignore" }).exitCode === 0;
 const slash = (path: string) => path.replaceAll("\\", "/");

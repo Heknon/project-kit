@@ -50,8 +50,11 @@ tofu fmt -recursive modules stacks
 - The kit is the same for every project. When an app needs something different, change the
   app, or make the kit more generic; never add a per-project special case.
 - Nothing that identifies an account goes into this repository or into an app repository:
-  no domains, ids, ARNs, bucket names, deployment URLs or secrets. Workflows read only
-  `secrets.*`, never `vars.*`.
+  no domains, ids, ARNs, bucket names, deployment URLs or secrets. Workflows read
+  `secrets.*`, never `vars.*` by name; only the step that writes repository-declared
+  variables reads `toJSON(vars)`, and only when one is `sensitive = false`.
+- `cli/repo-env.ts` runs inside the workflows as an embedded copy: it imports nothing, and
+  after changing it run `bun scripts/embed-repo-env.ts`.
 - Data is never deleted by the kit: `kit destroy` keeps the production database, buckets and
   repository.
 - Roles the kit creates for standard projects carry the `project-kit-app-boundary`

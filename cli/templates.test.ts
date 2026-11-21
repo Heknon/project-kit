@@ -25,3 +25,9 @@ test("callers grant what the kit's workflows ask for", () => {
   expect(files[".github/workflows/preview.yml"]).toContain("pull-requests: write");
   expect(files[".github/workflows/deploy.yml"]).toContain("id-token: write");
 });
+
+test("Deploy can be run by hand with names to rotate", () => {
+  const deploy = appFiles({ productionBranch: "main", productionDeploy: "push" }, ref, "v1.0.0")[".github/workflows/deploy.yml"];
+  expect(deploy).toContain("  workflow_dispatch:\n    inputs:\n      rotate:");
+  expect(deploy).toContain("      rotate: ${{ inputs.rotate }}\n");
+});
