@@ -8,7 +8,7 @@
 # version still serving.
 #
 # Bun apps (package.json) and Python apps (pyproject.toml + uv.lock) run the same steps; the
-# Kit helpers step detects which.
+# Kit helpers step detects which. A Bun app with pyproject.toml and uv.lock gets Python too.
 name: Deploy
 
 on:
@@ -33,14 +33,17 @@ jobs:
           # Identical in every job of preview.yml and deploy.yml (cli/workflows.test.ts checks).
           cat > "$RUNNER_TEMP/kit.sh" <<'SH'
           # Prints the app's language for $GITHUB_ENV: bun (package.json) or python (pyproject.toml
-          # and uv.lock); nothing when the branch has neither. docs/contract.md.
+          # and uv.lock); nothing when the branch has neither. A Bun app with pyproject.toml and
+          # uv.lock also gets KIT_PYTHON: Python is set up for it too. docs/contract.md.
           kit_detect() {
             if [ -f package.json ]; then
               echo "KIT_LANG=bun"
             elif [ -f pyproject.toml ] && [ -f uv.lock ]; then
+              echo "KIT_LANG=python"
+            fi
+            if [ -f pyproject.toml ] && [ -f uv.lock ]; then
               local version
               version=$(kit_python_version) || return 1
-              echo "KIT_LANG=python"
               echo "KIT_PYTHON=$version"
               echo "UV_PYTHON=$version"
               # Outside the checkout, so vercel build never bundles it.
@@ -68,20 +71,25 @@ jobs:
           print(f"{match[1]}.{match[2]}")
           PY
           }
-          # A Python app's scripts are shell commands in [tool.project-kit.scripts] of pyproject.toml.
+          # Python scripts are shell commands in [tool.project-kit.scripts] of pyproject.toml.
           kit_python_script() {
             python3 -I -c 'import sys, tomllib; s = tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("project-kit", {}).get("scripts", {}).get(sys.argv[1]); print(s) if isinstance(s, str) and s.strip() else sys.exit(1)' "$1"
           }
-          has_script() {
-            if [ "$KIT_LANG" = python ]; then
-              kit_python_script "$1" > /dev/null
-            else
-              bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"
+          # Where a script is declared: python ([tool.project-kit.scripts], first when the app has
+          # Python), bun (package.json), or nothing.
+          kit_script_source() {
+            if [ -n "$KIT_PYTHON" ] && kit_python_script "$1" > /dev/null; then
+              echo python
+            elif [ "$KIT_LANG" = bun ] && bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"; then
+              echo bun
             fi
+          }
+          has_script() {
+            [ -n "$(kit_script_source "$1")" ]
           }
           # Runs a script that exists; a Python one inside the project's uv environment.
           kit_run() {
-            if [ "$KIT_LANG" = python ]; then
+            if [ "$(kit_script_source "$1")" = python ]; then
               local command
               command=$(kit_python_script "$1")
               uv run --frozen -- bash -c "$command"
@@ -92,6 +100,7 @@ jobs:
           run_script() {
             local manifest=package.json
             [ "$KIT_LANG" = python ] && manifest="[tool.project-kit.scripts] of pyproject.toml"
+            [ "$KIT_LANG" = bun ] && [ -n "$KIT_PYTHON" ] && manifest="package.json or [tool.project-kit.scripts] of pyproject.toml"
             if has_script "$1"; then kit_run "$1"; else echo "::notice::No $1 script in $manifest; skipped."; fi
           }
           vercel() {
@@ -126,13 +135,13 @@ jobs:
           bun-version: 1.4.4
 
       - uses: actions/setup-python@v7
-        if: env.KIT_LANG == 'python'
+        if: env.KIT_PYTHON != ''
         with:
           python-version: ${{ env.KIT_PYTHON }}
 
       # uv's version: [tool.uv] required-version in pyproject.toml when the app sets it.
       - uses: astral-sh/setup-uv@v10.3.3
-        if: env.KIT_LANG == 'python'
+        if: env.KIT_PYTHON != ''
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -140,7 +149,8 @@ jobs:
       - name: Install
         if: env.KIT_LANG != ''
         run: |
-          if [ "$KIT_LANG" = python ]; then uv sync --frozen; else bun install --frozen-lockfile; fi
+          if [ -n "$KIT_PYTHON" ]; then uv sync --frozen; fi
+          if [ "$KIT_LANG" = bun ]; then bun install --frozen-lockfile; fi
 
       - name: Checks and full tests
         if: env.KIT_LANG != ''
@@ -189,14 +199,17 @@ jobs:
           # Identical in every job of preview.yml and deploy.yml (cli/workflows.test.ts checks).
           cat > "$RUNNER_TEMP/kit.sh" <<'SH'
           # Prints the app's language for $GITHUB_ENV: bun (package.json) or python (pyproject.toml
-          # and uv.lock); nothing when the branch has neither. docs/contract.md.
+          # and uv.lock); nothing when the branch has neither. A Bun app with pyproject.toml and
+          # uv.lock also gets KIT_PYTHON: Python is set up for it too. docs/contract.md.
           kit_detect() {
             if [ -f package.json ]; then
               echo "KIT_LANG=bun"
             elif [ -f pyproject.toml ] && [ -f uv.lock ]; then
+              echo "KIT_LANG=python"
+            fi
+            if [ -f pyproject.toml ] && [ -f uv.lock ]; then
               local version
               version=$(kit_python_version) || return 1
-              echo "KIT_LANG=python"
               echo "KIT_PYTHON=$version"
               echo "UV_PYTHON=$version"
               # Outside the checkout, so vercel build never bundles it.
@@ -224,20 +237,25 @@ jobs:
           print(f"{match[1]}.{match[2]}")
           PY
           }
-          # A Python app's scripts are shell commands in [tool.project-kit.scripts] of pyproject.toml.
+          # Python scripts are shell commands in [tool.project-kit.scripts] of pyproject.toml.
           kit_python_script() {
             python3 -I -c 'import sys, tomllib; s = tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("project-kit", {}).get("scripts", {}).get(sys.argv[1]); print(s) if isinstance(s, str) and s.strip() else sys.exit(1)' "$1"
           }
-          has_script() {
-            if [ "$KIT_LANG" = python ]; then
-              kit_python_script "$1" > /dev/null
-            else
-              bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"
+          # Where a script is declared: python ([tool.project-kit.scripts], first when the app has
+          # Python), bun (package.json), or nothing.
+          kit_script_source() {
+            if [ -n "$KIT_PYTHON" ] && kit_python_script "$1" > /dev/null; then
+              echo python
+            elif [ "$KIT_LANG" = bun ] && bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"; then
+              echo bun
             fi
+          }
+          has_script() {
+            [ -n "$(kit_script_source "$1")" ]
           }
           # Runs a script that exists; a Python one inside the project's uv environment.
           kit_run() {
-            if [ "$KIT_LANG" = python ]; then
+            if [ "$(kit_script_source "$1")" = python ]; then
               local command
               command=$(kit_python_script "$1")
               uv run --frozen -- bash -c "$command"
@@ -248,6 +266,7 @@ jobs:
           run_script() {
             local manifest=package.json
             [ "$KIT_LANG" = python ] && manifest="[tool.project-kit.scripts] of pyproject.toml"
+            [ "$KIT_LANG" = bun ] && [ -n "$KIT_PYTHON" ] && manifest="package.json or [tool.project-kit.scripts] of pyproject.toml"
             if has_script "$1"; then kit_run "$1"; else echo "::notice::No $1 script in $manifest; skipped."; fi
           }
           vercel() {
@@ -290,13 +309,13 @@ jobs:
           bun-version: 1.4.4
 
       - uses: actions/setup-python@v7
-        if: env.KIT_LANG == 'python'
+        if: env.KIT_PYTHON != ''
         with:
           python-version: ${{ env.KIT_PYTHON }}
 
       # uv's version: [tool.uv] required-version in pyproject.toml when the app sets it.
       - uses: astral-sh/setup-uv@v10.3.3
-        if: env.KIT_LANG == 'python'
+        if: env.KIT_PYTHON != ''
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -304,7 +323,8 @@ jobs:
       - name: Install
         if: env.KIT_LANG != ''
         run: |
-          if [ "$KIT_LANG" = python ]; then uv sync --frozen; else bun install --frozen-lockfile; fi
+          if [ -n "$KIT_PYTHON" ]; then uv sync --frozen; fi
+          if [ "$KIT_LANG" = bun ]; then bun install --frozen-lockfile; fi
 
       # Production ran them in Full tests.
       - name: Checks
