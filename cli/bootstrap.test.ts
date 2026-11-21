@@ -42,3 +42,10 @@ test("a Python starter is copied without its environment and caches", async () =
   expect(await Bun.file(join(to, "api", "health.py")).exists()).toBe(true);
   for (const path of [".venv/lib/x.py", "api/__pycache__/health.cpython-314.pyc"]) expect(await Bun.file(join(to, path)).exists()).toBe(false);
 });
+
+test("the Python starter keeps tests out of its functions with excludeFiles, not .vercelignore", async () => {
+  const dir = join(import.meta.dir, "..", "starters", "python");
+  const config = (await Bun.file(join(dir, "vercel.json")).json()) as { functions?: Record<string, { excludeFiles?: string }> };
+  expect(config.functions?.["api/**/*.py"]?.excludeFiles).toBe("tests/**");
+  expect(await Bun.file(join(dir, ".vercelignore")).exists()).toBe(false);
+});

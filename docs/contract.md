@@ -135,6 +135,13 @@ All optional; a missing script is skipped with a notice. A Bun app declares them
 Migrations must be backward compatible with the version still serving: they run before the
 new code is live.
 
+On previews the checks run after the deploy step, which removes the build output
+(`.vercel/output`) first, so they see the same checkout as on a dev deploy.
+
+A script that runs a committed shell file calls it through `bash` (`bash scripts/check.sh`,
+not `scripts/check.sh`): a file committed from Windows has no executable bit, and runs only
+after `git update-index --chmod=+x scripts/check.sh`.
+
 ### Build
 
 The Vercel project's build: `vercel.json` (`buildCommand`, Build Output API, or framework
@@ -214,7 +221,7 @@ application), or a Python framework Vercel detects (FastAPI, Flask, Django). `ki
 
   ```toml
   [tool.project-kit.scripts]
-  check = "scripts/check.sh"              # or "ruff check && pytest"
+  check = "bash scripts/check.sh"         # or "ruff check && pytest"
   "test:full" = "pytest -m slow"
   "db:migrate:deploy" = "alembic upgrade head"
   ```
@@ -225,8 +232,15 @@ application), or a Python framework Vercel detects (FastAPI, Flask, Django). `ki
 - `vercel.json` with `"git": { "deploymentEnabled": false }`, as every app.
 - A `public/` directory for static files, even if it holds only `robots.txt`: without one,
   Vercel serves the repository root as static files (`pyproject.toml`, source, tests).
-- `.vercelignore` for what a function must not bundle (tests, data); Vercel bundles every file
-  a Python function can reach and does no tree-shaking.
+- `excludeFiles` in `vercel.json` for what a function must not bundle (tests, data, docs):
+  Vercel's Python builder bundles every file a function can reach and does no tree-shaking.
+
+  ```json
+  "functions": { "api/**/*.py": { "excludeFiles": "{tests,data}/**" } }
+  ```
+
+  Not `.vercelignore`: `vercel build` bundles the files first, then `vercel deploy --prebuilt`
+  leaves the ignored ones out of the upload, and the deploy fails with `ENOENT`.
 
 ### What the workflows do with it
 

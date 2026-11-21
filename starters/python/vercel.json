@@ -1,4 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "git": { "deploymentEnabled": false }
+  "git": { "deploymentEnabled": false },
+  "functions": {
+    "api/**/*.py": { "excludeFiles": "tests/**" }
+  }
 }

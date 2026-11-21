@@ -63,8 +63,8 @@ export class Workspace {
     return result.code;
   }
 
-  async apply(): Promise<void> {
-    await this.tofu(["apply", assumeYes() ? "-auto-approve" : "-input=true"], true);
+  async apply(extra: string[] = []): Promise<void> {
+    await this.tofu(["apply", assumeYes() ? "-auto-approve" : "-input=true", ...extra], true);
   }
 
   async destroy(): Promise<void> {
