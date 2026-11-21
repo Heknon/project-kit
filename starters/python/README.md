@@ -25,3 +25,7 @@ To try the functions locally: `bunx vercel dev`. To use the dev deployment's var
 Pull requests get a preview deployment; `dev` deploys dev and the production branch deploys
 production, through the project-kit workflows in `.github/workflows`. `public/` holds the
 static files; without it Vercel would serve the project root.
+
+A function bundles every file it can reach: list what it must not carry (tests, data) in
+`excludeFiles` in `vercel.json`, as `"{tests,data}/**"`. `.vercelignore` doesn't do it: the
+build bundles the files, the upload then leaves them out, and the deploy fails.

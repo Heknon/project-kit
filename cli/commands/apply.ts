@@ -1,4 +1,4 @@
-import { survey } from "../adopt";
+import { type Adoption, survey } from "../adopt";
 import { getSharedGoogleClient, getSharedSecret, getToken, type SharedGoogleClient } from "../credentials";
 import { run } from "../exec";
 import { clientSpecs, copyToClipboard, openUrl, verifyRedirect } from "../google";
@@ -76,13 +76,30 @@ async function registerRedirects(settings: Settings, shared: SharedGoogleClient)
   }
 }
 
+export const PROJECT_ADDRESS = "module.platform.vercel_project.this";
+
+/**
+ * Vercel attaches `<name>.vercel.app` to a project as it creates it, so adding the same domain
+ * in the same apply fails. When the project doesn't exist yet, the kit creates it alone first;
+ * the next survey then adopts the domains Vercel gave it.
+ */
+export function createsProjectFirst(adoption: Adoption, inState: Set<string>): boolean {
+  return !inState.has(PROJECT_ADDRESS) && !(PROJECT_ADDRESS in adoption.imports);
+}
+
+interface Prepared {
+  workspace: Workspace;
+  /** The Vercel project is neither in the state nor on Vercel. */
+  projectMissing: boolean;
+}
+
 /**
  * Generates the root module, adopts what already exists (imports for resources that aren't
  * in the state yet), and refuses to start while a Marketplace integration owns names the kit
  * is about to set.
  */
-async function prepare(config: LocalConfig, settings: Settings, vercel: Vercel): Promise<Workspace> {
-  for (const note of pending(settings)) console.log(note);
+async function prepare(config: LocalConfig, settings: Settings, vercel: Vercel, notes = true): Promise<Prepared> {
+  if (notes) for (const note of pending(settings)) console.log(note);
 
   const adoption = await survey(settings, vercel);
   if (adoption.integrations.length > 0) {
@@ -110,12 +127,12 @@ async function prepare(config: LocalConfig, settings: Settings, vercel: Vercel):
     console.log(`Adopting existing resources:\n${Object.keys(imports).map((a) => `  ${a}`).join("\n")}`);
     workspace = await Workspace.open(settings, config, imports);
   }
-  return workspace;
+  return { workspace, projectMissing: createsProjectFirst(adoption, inState) };
 }
 
 export async function plan(name: string | undefined): Promise<void> {
   const { config, settings, vercel } = await load(name);
-  const workspace = await prepare(config, settings, vercel);
+  const { workspace } = await prepare(config, settings, vercel);
   try {
     await workspace.plan();
   } finally {
@@ -125,7 +142,16 @@ export async function plan(name: string | undefined): Promise<void> {
 
 export async function apply(name: string | undefined): Promise<void> {
   const { config, settings, vercel } = await load(name);
-  const workspace = await prepare(config, settings, vercel);
+  let { workspace, projectMissing } = await prepare(config, settings, vercel);
+  if (projectMissing) {
+    console.log("Creating the Vercel project first, so the domain Vercel gives it is adopted, not added twice.");
+    try {
+      await workspace.apply([`-target=${PROJECT_ADDRESS}`]);
+    } finally {
+      await workspace.close();
+    }
+    ({ workspace } = await prepare(config, settings, vercel, false));
+  }
   try {
     await workspace.apply();
   } finally {
@@ -162,7 +188,7 @@ async function reportMissingSecrets(settings: Settings, vercel: Vercel, projectI
 /** Drift (`tofu plan`) and leaks: identifiers of the project's accounts in its repository. */
 export async function check(name: string | undefined): Promise<void> {
   const { config, settings, vercel } = await load(name);
-  const workspace = await prepare(config, settings, vercel);
+  const { workspace } = await prepare(config, settings, vercel);
   let drift: number;
   let identifiers: string[];
   try {

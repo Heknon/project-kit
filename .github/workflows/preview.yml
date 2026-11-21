@@ -231,7 +231,8 @@ jobs:
           url=$(vercel deploy --prebuilt "${overrides[@]}")
           if [ "$PRIVATE_REPO" != "true" ]; then echo "::add-mask::$url"; fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
-          rm -f .vercel/.env.*
+          # The checks see the checkout as on a dev deploy: no pulled variables, no build output.
+          rm -rf .vercel/.env.* .vercel/output
 
       - name: Comment the preview
         if: env.KIT_DEPLOY == 'true' && github.event.repository.private
