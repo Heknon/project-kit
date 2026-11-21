@@ -74,9 +74,11 @@ That one command saves the settings (from your defaults), creates the repository
 doesn't exist, and applies (Vercel project and domains, Neon with a dev branch, S3 buckets
 and roles, GitHub environments and secrets, generated secrets, the shared Google client).
 A blank repository then gets the starter (`starters/next`: Next.js, Auth.js, Drizzle,
-Tailwind, Bun) and the caller workflows as its first commit on the production branch and on
-`dev`, so both deploy at once. A repository with code gets a pull request with the workflows
-instead (`--starter none` skips the starter). The only step left to you is the one Google
+Tailwind, Bun; or `--starter python`: Python functions with uv) and the caller workflows as
+its first commit on the production branch and on `dev`, so both deploy at once. A repository
+with code gets a pull request with the workflows instead (`--starter none` skips the
+starter). Apps are Bun (`package.json`) or Python (`pyproject.toml` + `uv.lock`); the
+workflows tell which from the files. The only step left to you is the one Google
 won't let a program do: adding the app's redirect URIs to the shared client. `kit apply`
 checks them with Google, and when any are missing it opens the client's page with them on
 your clipboard.

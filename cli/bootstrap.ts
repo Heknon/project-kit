@@ -19,11 +19,17 @@ export function starterDir(starter: string): string {
   return join(KIT_DIR, "starters", starter);
 }
 
+/** A starter is a directory under starters/ holding a Bun app (package.json) or a Python app (pyproject.toml). */
 export async function starterExists(starter: string): Promise<boolean> {
-  return stat(join(starterDir(starter), "package.json")).then(
-    () => true,
-    () => false,
-  );
+  if (!/^[a-z0-9-]+$/.test(starter)) return false;
+  for (const manifest of ["package.json", "pyproject.toml"]) {
+    const found = await stat(join(starterDir(starter), manifest)).then(
+      () => true,
+      () => false,
+    );
+    if (found) return true;
+  }
+  return false;
 }
 
 /**
@@ -51,7 +57,7 @@ export async function bootstrap(settings: Settings, starter: string): Promise<vo
 export async function copyStarter(from: string, to: string, name: string): Promise<void> {
   await cp(from, to, {
     recursive: true,
-    filter: (source) => !/(^|[\\/])(node_modules|\.next|\.vercel|\.turbo|next-env\.d\.ts)([\\/]|$)/.test(relative(from, source)),
+    filter: (source) => !/(^|[\\/])(node_modules|\.next|\.vercel|\.turbo|next-env\.d\.ts|\.venv|__pycache__|\.pytest_cache|\.ruff_cache)([\\/]|$)/.test(relative(from, source)),
   });
   for (const file of await walk(to)) {
     const handle = Bun.file(file);

@@ -25,7 +25,7 @@ export interface NewOptions {
   env?: string[];
   public?: boolean;
   yes?: boolean;
-  /** next (default for a blank repository) or none */
+  /** next (default for a blank repository), python or none: a directory under starters/ */
   starter?: string;
 }
 

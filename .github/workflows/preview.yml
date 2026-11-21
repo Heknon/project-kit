@@ -8,6 +8,9 @@
 # to a whole minute plus a runner boot and an install, and reviewers get the preview sooner.
 # A failed check still fails the run.
 #
+# Bun apps (package.json) and Python apps (pyproject.toml + uv.lock) run the same steps; the
+# Kit helpers step detects which.
+#
 # Public repositories: logs and the pull request never show deployment URLs or account names.
 name: Preview
 
@@ -49,12 +52,69 @@ jobs:
 
       - name: Kit helpers
         run: |
+          # Identical in every job of preview.yml and deploy.yml (cli/workflows.test.ts checks).
           cat > "$RUNNER_TEMP/kit.sh" <<'SH'
+          # Prints the app's language for $GITHUB_ENV: bun (package.json) or python (pyproject.toml
+          # and uv.lock); nothing when the branch has neither. docs/contract.md.
+          kit_detect() {
+            if [ -f package.json ]; then
+              echo "KIT_LANG=bun"
+            elif [ -f pyproject.toml ] && [ -f uv.lock ]; then
+              local version
+              version=$(kit_python_version) || return 1
+              echo "KIT_LANG=python"
+              echo "KIT_PYTHON=$version"
+              echo "UV_PYTHON=$version"
+              # Outside the checkout, so vercel build never bundles it.
+              echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/venv"
+            elif [ -f pyproject.toml ]; then
+              echo "::error::pyproject.toml has no uv.lock. Run uv lock and commit uv.lock." >&2
+              return 1
+            fi
+          }
+          # .python-version, else the lower bound of requires-python. Vercel runs 3.12 and later.
+          kit_python_version() {
+            python3 -I - <<'PY'
+          import pathlib, re, sys, tomllib
+          pin = pathlib.Path(".python-version")
+          if pin.exists():
+              source, text = ".python-version", pin.read_text()
+          else:
+              project = tomllib.loads(pathlib.Path("pyproject.toml").read_text()).get("project", {})
+              source, text = "requires-python", re.sub(r"^.*?(>=|==|~=)", "", project.get("requires-python", ""))
+          match = re.match(r"\s*(\d+)\.(\d+)", text)
+          if not match:
+              sys.exit(f'::error::No Python version in {source}. Set requires-python = ">=3.12" in pyproject.toml, or add .python-version.')
+          if (int(match[1]), int(match[2])) < (3, 12):
+              sys.exit(f"::error::{source} asks for Python {match[1]}.{match[2]}; Vercel runs 3.12 and later. Raise it.")
+          print(f"{match[1]}.{match[2]}")
+          PY
+          }
+          # A Python app's scripts are shell commands in [tool.project-kit.scripts] of pyproject.toml.
+          kit_python_script() {
+            python3 -I -c 'import sys, tomllib; s = tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("project-kit", {}).get("scripts", {}).get(sys.argv[1]); print(s) if isinstance(s, str) and s.strip() else sys.exit(1)' "$1"
+          }
           has_script() {
-            bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"
+            if [ "$KIT_LANG" = python ]; then
+              kit_python_script "$1" > /dev/null
+            else
+              bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"
+            fi
+          }
+          # Runs a script that exists; a Python one inside the project's uv environment.
+          kit_run() {
+            if [ "$KIT_LANG" = python ]; then
+              local command
+              command=$(kit_python_script "$1")
+              uv run --frozen -- bash -c "$command"
+            else
+              bun run "$1"
+            fi
           }
           run_script() {
-            if has_script "$1"; then bun run "$1"; else echo "::notice::No $1 script in package.json; skipped."; fi
+            local manifest=package.json
+            [ "$KIT_LANG" = python ] && manifest="[tool.project-kit.scripts] of pyproject.toml"
+            if has_script "$1"; then kit_run "$1"; else echo "::notice::No $1 script in $manifest; skipped."; fi
           }
           vercel() {
             local log="$RUNNER_TEMP/vercel.log"
@@ -64,8 +124,12 @@ jobs:
             bunx neonctl@2 "$@" --project-id "$NEON_PROJECT_ID"
           }
           SH
-          if [ ! -f package.json ]; then
-            echo "::notice::No package.json on this branch; nothing to deploy."
+          source "$RUNNER_TEMP/kit.sh"
+          kit_detect > "$RUNNER_TEMP/app.env"
+          cat "$RUNNER_TEMP/app.env" >> "$GITHUB_ENV"
+          set -a && source "$RUNNER_TEMP/app.env" && set +a
+          if [ -z "$KIT_LANG" ]; then
+            echo "::notice::No package.json or pyproject.toml on this branch; nothing to deploy."
           elif [ -z "$VERCEL_TOKEN" ]; then
             echo "::notice::The preview environment has no Vercel secrets (kit apply hasn't run, or this pull request comes from a fork); deploy skipped, checks still run."
             echo "KIT_APP=true" >> "$GITHUB_ENV"
@@ -75,20 +139,39 @@ jobs:
           fi
 
       - uses: oven-sh/setup-bun@v2
-        if: env.KIT_APP == 'true'
+        if: env.KIT_LANG == 'bun'
         with:
           bun-version-file: package.json
 
       - uses: actions/cache@v4
-        if: env.KIT_APP == 'true'
+        if: env.KIT_LANG == 'bun'
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
 
+      # A Python app gets Bun too: it runs the Vercel and Neon CLIs.
+      - uses: oven-sh/setup-bun@v2
+        if: env.KIT_LANG == 'python'
+        with:
+          bun-version: 1.4.4
+
+      - uses: actions/setup-python@v7
+        if: env.KIT_LANG == 'python'
+        with:
+          python-version: ${{ env.KIT_PYTHON }}
+
+      # uv's version: [tool.uv] required-version in pyproject.toml when the app sets it.
+      - uses: astral-sh/setup-uv@v10.3.3
+        if: env.KIT_LANG == 'python'
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
       - name: Install
-        if: env.KIT_APP == 'true'
-        run: bun install --frozen-lockfile
+        if: env.KIT_LANG != ''
+        run: |
+          if [ "$KIT_LANG" = python ]; then uv sync --frozen; else bun install --frozen-lockfile; fi
 
       - name: Database branch
         if: env.KIT_DEPLOY == 'true' && env.NEON_PROJECT_ID != ''
@@ -113,11 +196,11 @@ jobs:
           has_script db:migrate:deploy || { echo "::notice::No db:migrate:deploy script; skipped."; exit 0; }
           [ -n "$DATABASE_URL" ] || { echo "::notice::No preview database; migrations skipped."; exit 0; }
           # A preview database is a disposable copy: if migrating fails, start it over from its parent once.
-          if ! bun run db:migrate:deploy; then
+          if ! kit_run db:migrate:deploy; then
             [ -n "$NEON_PROJECT_ID" ] || exit 1
             echo "::warning::Migrations failed; resetting the preview database to its parent and retrying."
             neon branches reset "preview/pr-$PR" --parent > /dev/null
-            bun run db:migrate:deploy
+            kit_run db:migrate:deploy
           fi
 
       - name: Before deploy
@@ -133,6 +216,8 @@ jobs:
         run: |
           source "$RUNNER_TEMP/kit.sh"
           [ -f "$RUNNER_TEMP/db.env" ] && source "$RUNNER_TEMP/db.env"
+          # Vercel's Python builder picks the version and installs the dependencies itself, as on Vercel.
+          unset UV_PROJECT_ENVIRONMENT UV_PYTHON
           vercel pull --yes --environment=preview > /dev/null
           overrides=()
           if [ -n "$DATABASE_URL" ]; then
@@ -182,22 +267,126 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - name: Kit helpers
+        run: |
+          # Identical in every job of preview.yml and deploy.yml (cli/workflows.test.ts checks).
+          cat > "$RUNNER_TEMP/kit.sh" <<'SH'
+          # Prints the app's language for $GITHUB_ENV: bun (package.json) or python (pyproject.toml
+          # and uv.lock); nothing when the branch has neither. docs/contract.md.
+          kit_detect() {
+            if [ -f package.json ]; then
+              echo "KIT_LANG=bun"
+            elif [ -f pyproject.toml ] && [ -f uv.lock ]; then
+              local version
+              version=$(kit_python_version) || return 1
+              echo "KIT_LANG=python"
+              echo "KIT_PYTHON=$version"
+              echo "UV_PYTHON=$version"
+              # Outside the checkout, so vercel build never bundles it.
+              echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/venv"
+            elif [ -f pyproject.toml ]; then
+              echo "::error::pyproject.toml has no uv.lock. Run uv lock and commit uv.lock." >&2
+              return 1
+            fi
+          }
+          # .python-version, else the lower bound of requires-python. Vercel runs 3.12 and later.
+          kit_python_version() {
+            python3 -I - <<'PY'
+          import pathlib, re, sys, tomllib
+          pin = pathlib.Path(".python-version")
+          if pin.exists():
+              source, text = ".python-version", pin.read_text()
+          else:
+              project = tomllib.loads(pathlib.Path("pyproject.toml").read_text()).get("project", {})
+              source, text = "requires-python", re.sub(r"^.*?(>=|==|~=)", "", project.get("requires-python", ""))
+          match = re.match(r"\s*(\d+)\.(\d+)", text)
+          if not match:
+              sys.exit(f'::error::No Python version in {source}. Set requires-python = ">=3.12" in pyproject.toml, or add .python-version.')
+          if (int(match[1]), int(match[2])) < (3, 12):
+              sys.exit(f"::error::{source} asks for Python {match[1]}.{match[2]}; Vercel runs 3.12 and later. Raise it.")
+          print(f"{match[1]}.{match[2]}")
+          PY
+          }
+          # A Python app's scripts are shell commands in [tool.project-kit.scripts] of pyproject.toml.
+          kit_python_script() {
+            python3 -I -c 'import sys, tomllib; s = tomllib.load(open("pyproject.toml", "rb")).get("tool", {}).get("project-kit", {}).get("scripts", {}).get(sys.argv[1]); print(s) if isinstance(s, str) and s.strip() else sys.exit(1)' "$1"
+          }
+          has_script() {
+            if [ "$KIT_LANG" = python ]; then
+              kit_python_script "$1" > /dev/null
+            else
+              bun -e 'const s = (await Bun.file("package.json").json()).scripts ?? {}; process.exit(s[process.argv[1]] ? 0 : 1)' "$1"
+            fi
+          }
+          # Runs a script that exists; a Python one inside the project's uv environment.
+          kit_run() {
+            if [ "$KIT_LANG" = python ]; then
+              local command
+              command=$(kit_python_script "$1")
+              uv run --frozen -- bash -c "$command"
+            else
+              bun run "$1"
+            fi
+          }
+          run_script() {
+            local manifest=package.json
+            [ "$KIT_LANG" = python ] && manifest="[tool.project-kit.scripts] of pyproject.toml"
+            if has_script "$1"; then kit_run "$1"; else echo "::notice::No $1 script in $manifest; skipped."; fi
+          }
+          vercel() {
+            local log="$RUNNER_TEMP/vercel.log"
+            if ! bunx vercel@65.2.0 "$@" --token="$VERCEL_TOKEN" 2> "$log"; then cat "$log" >&2; return 1; fi
+          }
+          neon() {
+            bunx neonctl@2 "$@" --project-id "$NEON_PROJECT_ID"
+          }
+          SH
+          source "$RUNNER_TEMP/kit.sh"
+          kit_detect > "$RUNNER_TEMP/app.env"
+          cat "$RUNNER_TEMP/app.env" >> "$GITHUB_ENV"
+          set -a && source "$RUNNER_TEMP/app.env" && set +a
+
       - uses: oven-sh/setup-bun@v2
+        if: env.KIT_LANG == 'bun'
         with:
           bun-version-file: package.json
+
       - uses: actions/cache@v4
+        if: env.KIT_LANG == 'bun'
         with:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
-      - run: bun install --frozen-lockfile
-      - name: Full tests
+
+      # A Python app gets Bun too: it runs the Vercel and Neon CLIs.
+      - uses: oven-sh/setup-bun@v2
+        if: env.KIT_LANG == 'python'
+        with:
+          bun-version: 1.4.4
+
+      - uses: actions/setup-python@v7
+        if: env.KIT_LANG == 'python'
+        with:
+          python-version: ${{ env.KIT_PYTHON }}
+
+      # uv's version: [tool.uv] required-version in pyproject.toml when the app sets it.
+      - uses: astral-sh/setup-uv@v10.3.3
+        if: env.KIT_LANG == 'python'
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install
+        if: env.KIT_LANG != ''
         run: |
-          if bun -e 'process.exit((await Bun.file("package.json").json()).scripts?.["test:full"] ? 0 : 1)'; then
-            bun run test:full
-          else
-            echo "::notice::No test:full script in package.json; skipped."
-          fi
+          if [ "$KIT_LANG" = python ]; then uv sync --frozen; else bun install --frozen-lockfile; fi
+
+      - name: Full tests
+        if: env.KIT_LANG != ''
+        run: |
+          source "$RUNNER_TEMP/kit.sh"
+          run_script test:full
 
   cleanup:
     name: Delete the preview database
